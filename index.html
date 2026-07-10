@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Payroll &amp; Attendance System</title>
@@ -363,6 +364,56 @@ const STORE_KEY = 'payrollData_v1';
   }catch(e){}
 })();
 
+/* ============================= SUPABASE SYNC ============================= */
+/* Cloud persistence + multi-user sync. The whole DB is still one JSON object (as before);
+   we simply store/retrieve that object from a single row in Supabase instead of (only)
+   localStorage, and listen for changes from other devices/users in real time. localStorage is
+   kept as a fast local cache and offline fallback, but Supabase is now the source of truth. */
+const SUPABASE_URL = 'https://jbuqdpdtsjahryjwydha.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpidXFkcGR0c2phaHJ5andhZGhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2NTY5MDIsImV4cCI6MjA5OTIzMjkwMn0.Sh8PRXyhtyoNYX14yeudL8uoYADGOV1uiKWtFEY9S7E';
+const ROW_ID = 'main';
+const CLIENT_ID = (function(){
+  let id;
+  try{ id = sessionStorage.getItem('payrollClientId'); }catch(e){}
+  if(!id){ id = 'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); try{ sessionStorage.setItem('payrollClientId', id); }catch(e){} }
+  return id;
+})();
+let sb = null;
+try{
+  if(window.supabase && window.supabase.createClient){
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+}catch(e){ console.error('Supabase init failed', e); }
+
+async function fetchRemoteDB(){
+  if(!sb) return null;
+  const {data, error} = await sb.from('app_state').select('data').eq('id', ROW_ID).maybeSingle();
+  if(error) throw error;
+  return data ? data.data : null;
+}
+async function pushRemoteDB(dbObj){
+  if(!sb) return;
+  try{
+    const {error} = await sb.from('app_state').upsert({
+      id: ROW_ID, data: dbObj, updated_at: new Date().toISOString(), updated_by: CLIENT_ID
+    });
+    if(error) console.error('Remote save failed', error);
+  }catch(err){ console.error('Remote save failed', err); }
+}
+function subscribeRealtime(){
+  if(!sb) return;
+  sb.channel('app_state_changes')
+    .on('postgres_changes', {event:'UPDATE', schema:'public', table:'app_state', filter:`id=eq.${ROW_ID}`}, (payload)=>{
+      const row = payload.new;
+      if(!row || row.updated_by === CLIENT_ID) return; // ignore echoes of our own writes
+      DB = mergeData(row.data || {});
+      try{ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }catch(e){}
+      renderNav(); renderPage();
+      toast('Updated from another device');
+    })
+    .subscribe();
+}
+
 function uid(){ return 'id'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 
 function defaultData(){
@@ -421,23 +472,27 @@ function defaultData(){
 }
 
 let DB = load();
+/* Shared by load() (localStorage) and the Supabase boot/realtime paths, so data coming from
+   either source is normalized the same way and never drops defaults for missing keys. */
+function mergeData(parsed){
+  const d = defaultData();
+  const merged = Object.assign(d, parsed, {settings:Object.assign(d.settings, parsed.settings||{})});
+  // Nested settings objects need their own merge, otherwise an older save (which has no
+  // `company`/`maintenance`/`security` key, or only part of one) would drop the new defaults.
+  const ps = parsed.settings||{};
+  merged.settings.company     = Object.assign({name:'', logo:''}, ps.company||{});
+  merged.settings.maintenance = Object.assign({active:false, message:'', startedAt:null, startedBy:''}, ps.maintenance||{});
+  merged.settings.security    = Object.assign({enabled:false, staffLoginEnabled:false, adminEnabled:false, adminPasswordHash:'', staffList:[]}, ps.security||{});
+  if(!Array.isArray(merged.activityLog)) merged.activityLog = [];
+  if(!merged.readyStatus || typeof merged.readyStatus!=='object') merged.readyStatus = {};
+  return merged;
+}
 function load(){
   try{
     const raw = localStorage.getItem(STORE_KEY);
     if(!raw) return defaultData();
     const parsed = JSON.parse(raw);
-    // merge in case of missing keys from older versions
-    const d = defaultData();
-    const merged = Object.assign(d, parsed, {settings:Object.assign(d.settings, parsed.settings||{})});
-    // Nested settings objects need their own merge, otherwise an older save (which has no
-    // `company`/`maintenance`/`security` key, or only part of one) would drop the new defaults.
-    const ps = parsed.settings||{};
-    merged.settings.company     = Object.assign({name:'', logo:''}, ps.company||{});
-    merged.settings.maintenance = Object.assign({active:false, message:'', startedAt:null, startedBy:''}, ps.maintenance||{});
-    merged.settings.security    = Object.assign({enabled:false, staffLoginEnabled:false, adminEnabled:false, adminPasswordHash:'', staffList:[]}, ps.security||{});
-    if(!Array.isArray(merged.activityLog)) merged.activityLog = [];
-    if(!merged.readyStatus || typeof merged.readyStatus!=='object') merged.readyStatus = {};
-    return merged;
+    return mergeData(parsed);
   }catch(e){ console.error(e); return defaultData(); }
 }
 /* PERFORMANCE: writing the whole DB is expensive (JSON.stringify + localStorage). Firefox on
@@ -447,7 +502,10 @@ function load(){
 function save(){
   clearTimeout(window.__saveTimer);
   window.__saveTimer = setTimeout(()=>{
-    const write = ()=>{ try{ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }catch(err){ console.error('Save failed', err); } };
+    const write = ()=>{
+      try{ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }catch(err){ console.error('Save failed', err); }
+      pushRemoteDB(DB);
+    };
     if(window.requestIdleCallback) requestIdleCallback(write, {timeout:1000});
     else write();
   }, 800);
@@ -455,6 +513,7 @@ function save(){
 function saveNow(){
   clearTimeout(window.__saveTimer);
   try{ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }catch(err){ console.error('Save failed', err); }
+  pushRemoteDB(DB);
 }
 /* Never lose a pending debounced save if the tab is closed or hidden mid-edit. */
 window.addEventListener('beforeunload', ()=>{ if(window.__saveTimer) saveNow(); });
@@ -3840,12 +3899,32 @@ function pageSettings(main){
 /* Session logging for the Login/Logout History (Settings > Login / Logout History).
    One "Login" entry when the app opens, one "Logout" when the tab closes.
    saveNow() on close so the final entry can never be lost to the debounced save. */
-logActivity('Login');
-save();
 window.addEventListener('beforeunload', ()=>{ logActivity('Logout'); saveNow(); });
 
-renderNav();
-renderPage();
+/* Boot: pull the shared cloud copy before the first render, so every device/user opens on the
+   same data instead of briefly flashing whatever was last cached in this browser. Falls back to
+   the local cache (already loaded into DB above) if the network/Supabase is unavailable, so the
+   app still works offline. */
+(async function boot(){
+  try{
+    const remote = await fetchRemoteDB();
+    if(remote){
+      DB = mergeData(remote);
+      try{ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }catch(e){}
+    }else{
+      // Nothing in the cloud yet - seed it with whatever this browser currently has.
+      await pushRemoteDB(DB);
+    }
+  }catch(err){
+    console.error('Cloud load failed, continuing with local data', err);
+    toast('Offline - using data saved on this device');
+  }
+  logActivity('Login');
+  save();
+  renderNav();
+  renderPage();
+  subscribeRealtime();
+})();
 </script>
 <script>
 (function(){
