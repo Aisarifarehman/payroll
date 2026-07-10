@@ -3637,25 +3637,31 @@ function pageCostCentre(main){
     );
   }
 
-  // Non-mutating equivalent of Daily Timesheet's getEntries(): returns the real saved
-  // entries if they exist, otherwise the same default pattern, WITHOUT writing to DB.
+  // Non-mutating reader: returns the real saved entries for this employee/month ONLY if
+  // that month's Daily Timesheet was actually TOUCHED (typed, Full Absent, Full Present,
+  // etc.) or has a saved payroll record — the exact same "has this been prepared?" signal
+  // Wage Card / Salary Calculation use (hasMonthData / DB.timesheetTouched). Merely opening
+  // the Daily Timesheet page auto-writes default rows into DB.timesheets for every employee
+  // it renders, so checking DB.timesheets alone is NOT a reliable "was this prepared?" test —
+  // it must go through hasMonthData(), or untouched employees would still show 30 days here.
   function readEntries(empId, month){
-    if(DB.timesheets[empId] && DB.timesheets[empId][month]) return DB.timesheets[empId][month];
-    const dates = periodDates(month);
-    const empAcctId = (byId(DB.employees, empId)||{}).accountId || '';
-    return dates.map(dateStr=>({date:dateStr, accountId: empAcctId}));
+    if(!hasMonthData(empId, month)) return null;
+    return (DB.timesheets[empId] && DB.timesheets[empId][month]) || null;
   }
 
+  // Returns {counts, hasTimesheet}. counts is {} and hasTimesheet is false when no
+  // timesheet has been prepared for this employee/month — callers must render that as blank.
   function costBreakdown(empId, month){
     const emp = byId(DB.employees, empId);
     const entries = readEntries(empId, month);
     const counts = {};
+    if(!entries) return {counts, hasTimesheet:false};
     entries.forEach(r=>{
       const accId = r.accountId || (emp?emp.accountId:'') || '';
       if(!accId) return;
       counts[accId] = (counts[accId]||0) + 1;
     });
-    return counts;
+    return {counts, hasTimesheet:true};
   }
 
   function renderInner(){
@@ -3694,15 +3700,27 @@ function pageCostCentre(main){
 
     // Which cost centers to show as columns: either just the one filtered, or every account
     // that actually has at least one day counted across the employees in scope this month.
-    const perEmp = emps.map(e=>({emp:e, counts: costBreakdown(e.id, f.month)}));
+    const perEmp = emps.map(e=>{
+      const {counts, hasTimesheet} = costBreakdown(e.id, f.month);
+      return {emp:e, counts, hasTimesheet};
+    });
     let acctIds = f.accountId ? [f.accountId] : Array.from(new Set(perEmp.flatMap(x=>Object.keys(x.counts))));
     acctIds = acctIds.filter(id=>byId(DB.accounts,id)).sort((a,b)=>accName(a).localeCompare(accName(b)));
-    if(!acctIds.length){ host.innerHTML = `<div class="card"><div class="empty">No Cost Center data found for ${monthLabel(f.month)}.</div></div>`; return; }
+    if(!acctIds.length){ host.innerHTML = `<div class="card"><div class="empty">No Cost Center data found for ${monthLabel(f.month)}. No Daily Timesheet has been prepared yet for this month.</div></div>`; return; }
 
     const totalByAcct = {};
     acctIds.forEach(id=>totalByAcct[id]=0);
 
-    const rowsHTML = perEmp.map(({emp,counts})=>{
+    const rowsHTML = perEmp.map(({emp,counts,hasTimesheet})=>{
+      // No timesheet prepared for this employee this month -> every cell stays blank,
+      // and it does not contribute anything to the column/grand totals.
+      if(!hasTimesheet){
+        return `<tr>
+          <td>${emp.code}</td><td>${emp.name}</td><td>${divName(emp.divisionId)}</td>
+          ${acctIds.map(()=>`<td class="right">—</td>`).join('')}
+          <td class="right">—</td>
+        </tr>`;
+      }
       const rowTotal = acctIds.reduce((s,id)=>s+(counts[id]||0),0);
       acctIds.forEach(id=>{ totalByAcct[id]+=(counts[id]||0); });
       return `<tr>
