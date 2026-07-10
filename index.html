@@ -544,7 +544,8 @@ const NAV = [
     {id:'timesheet', label:'Daily Timesheet', icon:'🕒'},
     {id:'hazardous', label:'Hazardous Allowance', icon:'☣️'},
     {id:'salary', label:'Salary Calculation', icon:'💰'},
-    {id:'wagecard', label:'Wage Card / Report', icon:'📄'}
+    {id:'wagecard', label:'Wage Card / Report', icon:'📄'},
+    {id:'costcenter', label:'Cost Centre Details', icon:'🏷'}
   ]},
   {group:'System', items:[
     {id:'settings', label:'Settings & Backup', icon:'🛠'}
@@ -578,7 +579,7 @@ function renderPage(){
     blocks: ()=>pageStructure('blocks'), accounts: ()=>pageStructure('accounts'),
     employees: pageEmployees, transfers: pageTransfers, timesheet: pageTimesheet,
     hazardous: pageHazardous,
-    salary: pageSalary, wagecard: pageWageCard, settings: pageSettings
+    salary: pageSalary, wagecard: pageWageCard, costcenter: pageCostCentre, settings: pageSettings
   };
   main.innerHTML = '';
   (renderers[currentPage]||pageDashboard)(main);
@@ -3613,6 +3614,126 @@ function historyRowsHTML(){
     <td class="hist-loc">${esc(e.device||'—')}</td>
     <td class="hist-loc">${esc(e.note||'')}</td>
   </tr>`).join('');
+}
+
+/* ============================= COST CENTRE DETAILS =============================
+   Read-only reporting page: for a chosen month, shows how many days of that employee's
+   (or every employee's) timesheet were charged to each Cost Center (Analytic Account).
+   Counts are driven purely by the per-day "Cost Center" field on the Daily Timesheet
+   (defaults to the employee's assigned account, but can be overridden day-by-day there —
+   e.g. a Laundry employee driving for 2 days gets those 2 days counted under LDRV instead
+   of L101). This page never writes to DB.timesheets — it only reads existing data, or, if a
+   month was never opened, computes the same default pattern Daily Timesheet would generate
+   (so the count is accurate even before anyone visits that employee's sheet) without saving it. */
+function pageCostCentre(main){
+  const f = pageCostCentre._f || (pageCostCentre._f = {
+    month: monthKeyNow(), division:'', employeeId:'', accountId:'', search:''
+  });
+
+  function empList(){
+    return DB.employees.filter(e=>
+      (!f.division || e.divisionId===f.division) &&
+      matchesSearch(e, f.search)
+    );
+  }
+
+  // Non-mutating equivalent of Daily Timesheet's getEntries(): returns the real saved
+  // entries if they exist, otherwise the same default pattern, WITHOUT writing to DB.
+  function readEntries(empId, month){
+    if(DB.timesheets[empId] && DB.timesheets[empId][month]) return DB.timesheets[empId][month];
+    const dates = periodDates(month);
+    const empAcctId = (byId(DB.employees, empId)||{}).accountId || '';
+    return dates.map(dateStr=>({date:dateStr, accountId: empAcctId}));
+  }
+
+  function costBreakdown(empId, month){
+    const emp = byId(DB.employees, empId);
+    const entries = readEntries(empId, month);
+    const counts = {};
+    entries.forEach(r=>{
+      const accId = r.accountId || (emp?emp.accountId:'') || '';
+      if(!accId) return;
+      counts[accId] = (counts[accId]||0) + 1;
+    });
+    return counts;
+  }
+
+  function renderInner(){
+    const emps = empList();
+    if(f.employeeId && !emps.find(e=>e.id===f.employeeId)) f.employeeId='';
+    main.innerHTML = `
+      <div class="pageheader"><div><h2>Cost Centre Details</h2><div class="sub">Per-employee day counts by Cost Center for a selected month — driven by the Cost Center set on each day in Daily Timesheet</div></div></div>
+      <div class="card no-print">
+        <div class="filters">
+          ${monthYearPickerHTML('ccMonth', f.month)}
+          <div class="fitem"><label>Division</label><select id="ccDiv"><option value="">All</option>${DB.divisions.map(d=>`<option value="${d.id}" ${f.division===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Employee (Code / Name)</label><input type="text" id="ccSearch" placeholder="Search code or name..." value="${esc(f.search)}"></div>
+          <div class="fitem"><label>Employee</label><select id="ccEmp"><option value="">— All employees in scope —</option>${emps.map(e=>`<option value="${e.id}" ${f.employeeId===e.id?'selected':''}>${e.code} - ${e.name}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Cost Center</label><select id="ccAcct"><option value="">All</option>${DB.accounts.map(a=>`<option value="${a.id}" ${f.accountId===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('')}</select></div>
+        </div>
+        <p class="smallnote">${emps.length} employee(s) match current filters, for ${monthLabel(f.month)} (${daysInMonth(f.month)} days).</p>
+      </div>
+      <div id="ccResults"></div>
+    `;
+    wireMonthYearPicker('ccMonth', (newMonth)=>{ f.month=newMonth; renderResults(); });
+    document.getElementById('ccDiv').onchange=(e)=>{f.division=e.target.value; f.employeeId=''; renderInner();};
+    document.getElementById('ccSearch').oninput=(e)=>{
+      f.search=e.target.value; f.employeeId=''; renderInner();
+      const el = document.getElementById('ccSearch'); el.focus(); el.setSelectionRange(f.search.length, f.search.length);
+    };
+    document.getElementById('ccEmp').onchange=(e)=>{f.employeeId=e.target.value; renderResults();};
+    document.getElementById('ccAcct').onchange=(e)=>{f.accountId=e.target.value; renderResults();};
+    renderResults();
+  }
+
+  function renderResults(){
+    const host = document.getElementById('ccResults');
+    if(!host) return;
+    const emps = f.employeeId ? [byId(DB.employees, f.employeeId)].filter(Boolean) : empList();
+    if(!emps.length){ host.innerHTML = `<div class="card"><div class="empty">No employees match current filters.</div></div>`; return; }
+
+    // Which cost centers to show as columns: either just the one filtered, or every account
+    // that actually has at least one day counted across the employees in scope this month.
+    const perEmp = emps.map(e=>({emp:e, counts: costBreakdown(e.id, f.month)}));
+    let acctIds = f.accountId ? [f.accountId] : Array.from(new Set(perEmp.flatMap(x=>Object.keys(x.counts))));
+    acctIds = acctIds.filter(id=>byId(DB.accounts,id)).sort((a,b)=>accName(a).localeCompare(accName(b)));
+    if(!acctIds.length){ host.innerHTML = `<div class="card"><div class="empty">No Cost Center data found for ${monthLabel(f.month)}.</div></div>`; return; }
+
+    const totalByAcct = {};
+    acctIds.forEach(id=>totalByAcct[id]=0);
+
+    const rowsHTML = perEmp.map(({emp,counts})=>{
+      const rowTotal = acctIds.reduce((s,id)=>s+(counts[id]||0),0);
+      acctIds.forEach(id=>{ totalByAcct[id]+=(counts[id]||0); });
+      return `<tr>
+        <td>${emp.code}</td><td>${emp.name}</td><td>${divName(emp.divisionId)}</td>
+        ${acctIds.map(id=>`<td class="right">${dashN(counts[id]||0)}</td>`).join('')}
+        <td class="right" style="font-weight:700;">${rowTotal}</td>
+      </tr>`;
+    }).join('');
+
+    const grandTotal = acctIds.reduce((s,id)=>s+totalByAcct[id],0);
+
+    host.innerHTML = `
+      <div class="card">
+        <div class="tablewrap"><table class="grid-table">
+          <thead><tr>
+            <th>Code</th><th>Name</th><th>Division</th>
+            ${acctIds.map(id=>`<th class="right">${byId(DB.accounts,id).code}</th>`).join('')}
+            <th class="right">Total Days</th>
+          </tr></thead>
+          <tbody>${rowsHTML}</tbody>
+          <tfoot><tr class="tfoot-total">
+            <td colspan="3">TOTAL</td>
+            ${acctIds.map(id=>`<td class="right">${totalByAcct[id]}</td>`).join('')}
+            <td class="right">${grandTotal}</td>
+          </tr></tfoot>
+        </table></div>
+      </div>
+    `;
+  }
+
+  renderInner();
 }
 
 function pageSettings(main){
