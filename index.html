@@ -1742,11 +1742,12 @@ function pageTimesheet(main){
     DB.timesheets[empId] = DB.timesheets[empId] || {};
     if(!DB.timesheets[empId][month]){
       const dates = periodDates(month);
+      const empAcctId = (byId(DB.employees, empId)||{}).accountId || '';
       const arr = dates.map(dateStr=>{
         if(isWeekOffDate(dateStr)){
-          return {date:dateStr, remark:'', timeIn:'', break1:'', break2:'', timeOut:'', normalOT:'', fridayOT:'', phOT:''};
+          return {date:dateStr, remark:'', timeIn:'', break1:'', break2:'', timeOut:'', normalOT:'', fridayOT:'', phOT:'', accountId:empAcctId};
         }
-        return {date:dateStr, remark:'', timeIn:'08:00', break1:'12:00-13:00', break2:'17:00-18:00', timeOut:'20:00', normalOT:2, fridayOT:0, phOT:0};
+        return {date:dateStr, remark:'', timeIn:'08:00', break1:'12:00-13:00', break2:'17:00-18:00', timeOut:'20:00', normalOT:2, fridayOT:0, phOT:0, accountId:empAcctId};
       });
       DB.timesheets[empId][month] = arr;
     }
@@ -1791,6 +1792,9 @@ function pageTimesheet(main){
         <td><input class="tsi" type="number" step="0.5" min="0" max="10" data-emp="${uidTag}" data-idx="${idx}" data-f="normalOT" value="${r.normalOT}" style="width:55px;"></td>
         <td><input class="tsi" type="number" step="0.5" min="0" max="10" data-emp="${uidTag}" data-idx="${idx}" data-f="fridayOT" value="${r.fridayOT}" style="width:55px;"></td>
         <td><input class="tsi" type="number" step="0.5" min="0" max="10" data-emp="${uidTag}" data-idx="${idx}" data-f="phOT" value="${r.phOT}" style="width:55px;"></td>
+        <td><select class="tsi" data-emp="${uidTag}" data-idx="${idx}" data-f="accountId" style="width:120px;" title="Cost Center this day's work is charged to. Defaults to the employee's current Cost Center; change it for any day worked at a different site.">
+          ${DB.accounts.map(a=>`<option value="${a.id}" ${(r.accountId||emp.accountId)===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('')}
+        </select></td>
         <td class="right no-print"><button class="btn-icon del" data-clear="${idx}" data-emp="${uidTag}">✕</button></td>
       </tr>`;
     }).join('');
@@ -1822,12 +1826,12 @@ function pageTimesheet(main){
         <div class="tablewrap"><table class="grid-table">
           <thead><tr>
             <th>Date</th><th>Remark</th><th>Time<br>In</th><th>Break Hours</th><th>Break Hours</th><th>Time<br>Out</th>
-            <th>Normal<br>OT Hrs</th><th>Sunday<br>OT Hrs</th><th>PH<br>OT Hrs</th><th class="no-print">Clear</th>
+            <th>Normal<br>OT Hrs</th><th>Sunday<br>OT Hrs</th><th>PH<br>OT Hrs</th><th>Cost Center</th><th class="no-print">Clear</th>
           </tr></thead>
           <tbody class="ts-body" data-emp="${uidTag}">${rowsHTML}</tbody>
           <tfoot><tr class="tfoot-total">
             <td colspan="6">TOTAL — Absent: <span id="ao_${uidTag}">${stats.absentDays}</span> | Leave: <span id="lo_${uidTag}">${stats.leaveDays}</span> | Medical: <span id="md_${uidTag}">${stats.medicalDays||0}</span> | Week Off: <span id="wo_${uidTag}">${stats.weekOffs}</span> | Public Holiday: <span id="ph_${uidTag}">${stats.holidayDays}</span></td>
-            <td id="tn_${uidTag}">${stats.totalNormal}</td><td id="tf_${uidTag}">${stats.totalFriday}</td><td id="tp_${uidTag}">${stats.totalPh}</td><td class="no-print"></td>
+            <td id="tn_${uidTag}">${stats.totalNormal}</td><td id="tf_${uidTag}">${stats.totalFriday}</td><td id="tp_${uidTag}">${stats.totalPh}</td><td></td><td class="no-print"></td>
           </tr></tfoot>
         </table></div>
 
@@ -2567,7 +2571,7 @@ function computeSalary(emp, month){
       rawBasicSalary: emp.basicSalary||0, basicSalary:0, absentDeduction:0,
       normalOT:0, fridayOT:0, phOT:0, normalOTAmt:0, fridayOTAmt:0, phOTAmt:0,
       twelveHourAllowanceAmt:0, hazardousAttendanceAuto:0, extraHeavyHours:0, extraHazardousAuto:0,
-      allowances:{performance:0,special:0,friday:0,publicHoliday:0,food:0,transport:0,hazardous:0,accommodation:0,ramadan:0},
+      allowances:{performance:0,performanceAllow:0,special:0,friday:0,publicHoliday:0,food:0,transport:0,hazardous:0,accommodation:0,ramadan:0},
       rawAllowances: emp.allowances||{}, allowTotal:0, totalSalary:0, deduction:0, netSalary:0
     };
   }
@@ -2693,23 +2697,23 @@ function pageSalary(main){
         <div class="tablewrap scrollbox"><table><thead><tr>
           <th>${isYearly?'Month':'Code'}</th>${isYearly?'':'<th>Name</th>'}${isYearly?'':'<th>Status</th>'}<th>Absent/Leave</th><th class="right">Basic (net)</th>
           ${otHeaderCells(colMode)}
-          <th class="right">Fix</th><th class="right">Special</th><th class="right">Hazardous</th><th class="right">${accHd}</th><th class="right">${foodHd}</th>${laundryTh}<th class="right">Transport</th><th class="right">Ramadan</th>
+          <th class="right">Fix</th><th class="right">Performance</th><th class="right">Special</th><th class="right">Hazardous</th><th class="right">${accHd}</th><th class="right">${foodHd}</th>${laundryTh}<th class="right">Transport</th><th class="right">Ramadan</th>
           <th class="right">Deduction</th><th class="right">Total Salary</th><th class="right">Net Salary</th>${isYearly?'':'<th class="right">Actions</th>'}
         </tr></thead><tbody>
         ${isYearly ? (
           (selEmp && rows.length) ? rows.map(r=>r.noData ? `
           <tr>
             <td><b title="${monthLabel(r.mk)}">${monthShortLabel(r.mk)}</b></td>
-            <td colspan="${12+secCol+otColCount(colMode)}" class="empty" style="text-align:left;">No timesheet prepared/saved for this month</td>
+            <td colspan="${13+secCol+otColCount(colMode)}" class="empty" style="text-align:left;">No timesheet prepared/saved for this month</td>
           </tr>` : `
           <tr>
             <td><b title="${monthLabel(r.mk)}">${monthShortLabel(r.mk)}</b></td><td>${ndays(r)}</td>
             <td class="right">${fmt(r.basicSalary)}</td>
             ${otRowCells(r, colMode)}
-            <td class="right">${fmt(r.allowances?.performance)}</td><td class="right">${fmt(r.allowances?.special)}</td><td class="right">${fmt(r.allowances?.hazardous)}</td>
+            <td class="right">${fmt(r.allowances?.performance)}</td><td class="right">${fmt(r.allowances?.performanceAllow)}</td><td class="right">${fmt(r.allowances?.special)}</td><td class="right">${fmt(r.allowances?.hazardous)}</td>
             ${accFoodLaundryTd(r)}<td class="right">${fmt(r.allowances?.transport)}</td><td class="right">${fmt(r.allowances?.ramadan)}</td>
             <td class="right">${dashDed(getDeduction(r))}</td><td class="right">${fmt(r.totalSalary)}</td><td class="right"><b>${fmt(getNetSalary(r))}</b></td>
-          </tr>`).join('') : `<tr><td colspan="${13+secCol+otColCount(colMode)}" class="empty">${selEmp?'No data for this year.':'Select an employee above to see their Jan–Dec summary.'}</td></tr>`
+          </tr>`).join('') : `<tr><td colspan="${14+secCol+otColCount(colMode)}" class="empty">${selEmp?'No data for this year.':'Select an employee above to see their Jan–Dec summary.'}</td></tr>`
         ) : (
         rows.length? rows.map(r=>`
           <tr>
@@ -2718,12 +2722,12 @@ function pageSalary(main){
             <td>${ndays(r)}</td>
             <td class="right">${fmt(r.basicSalary)}</td>
             ${otRowCells(r, colMode)}
-            <td class="right">${fmt(r.allowances?.performance)}</td><td class="right">${fmt(r.allowances?.special)}</td><td class="right">${fmt(r.allowances?.hazardous)}</td>
+            <td class="right">${fmt(r.allowances?.performance)}</td><td class="right">${fmt(r.allowances?.performanceAllow)}</td><td class="right">${fmt(r.allowances?.special)}</td><td class="right">${fmt(r.allowances?.hazardous)}</td>
             ${accFoodLaundryTd(r)}<td class="right">${fmt(r.allowances?.transport)}</td><td class="right">${fmt(r.allowances?.ramadan)}</td>
             <td class="right"><span style="color:#b42318;font-weight:600;margin-right:2px;">-</span><input type="number" step="0.01" class="dedi" data-emp="${r.empId}" value="${inpVal(getDeduction(r))}" placeholder="0.00" style="width:70px;text-align:right;"></td>
             <td class="right">${fmt(r.totalSalary)}</td><td class="right"><b>${fmt(getNetSalary(r))}</b></td>
             <td class="right"><button class="btn-icon" data-detail="${r.empId}">🔍</button></td>
-          </tr>`).join(''): `<tr><td colspan="${16+secCol+otColCount(colMode)}" class="empty">${(viewMode!=='active'&&viewMode!=='all') ? `No employees with status "${STATUS_META[viewMode].label}" in this scope.` : (viewMode==='active' ? `All ${counts.none} employee(s) in this scope have no timesheet yet — switch the dropdown above to "All statuses" to see them.` : 'No active employees in this scope.')}</td></tr>`
+          </tr>`).join(''): `<tr><td colspan="${17+secCol+otColCount(colMode)}" class="empty">${(viewMode!=='active'&&viewMode!=='all') ? `No employees with status "${STATUS_META[viewMode].label}" in this scope.` : (viewMode==='active' ? `All ${counts.none} employee(s) in this scope have no timesheet yet — switch the dropdown above to "All statuses" to see them.` : 'No active employees in this scope.')}</td></tr>`
         )}
         </tbody>
         <tfoot><tr class="tfoot-total">
@@ -2731,13 +2735,13 @@ function pageSalary(main){
           <td>${isYearly?'ANNUAL TOTAL':''}</td><td></td>
           <td class="right">${fmt(grandBasic)}</td>
           ${otFooterCells(rows.filter(r=>!r.noData), colMode)}
-          <td class="right">${fmt(sum(r=>r.allowances?.performance))}</td><td class="right">${fmt(sum(r=>r.allowances?.special))}</td><td class="right">${fmt(sum(r=>r.allowances?.hazardous))}</td>
+          <td class="right">${fmt(sum(r=>r.allowances?.performance))}</td><td class="right">${fmt(sum(r=>r.allowances?.performanceAllow))}</td><td class="right">${fmt(sum(r=>r.allowances?.special))}</td><td class="right">${fmt(sum(r=>r.allowances?.hazardous))}</td>
           <td class="right">${fmt(sum(r=>r.allowances?.accommodation))}</td><td class="right">${fmt(sum(r=>r.allowances?.food))}</td>${laundryFt()}<td class="right">${fmt(sum(r=>r.allowances?.transport))}</td><td class="right">${fmt(sum(r=>r.allowances?.ramadan))}</td>
           <td class="right">${fmtDed(grandDed)}</td><td class="right">${DB.settings.currency} ${fmt(grandTotal)}</td><td class="right">${DB.settings.currency} ${fmt(grandNet)}</td>
           ` : `
           <td colspan="3">GRAND TOTAL</td><td class="right">${fmt(grandBasic)}</td>
           ${otFooterCells(rows, colMode)}
-          <td class="right">${fmt(sum(r=>r.allowances?.performance))}</td><td class="right">${fmt(sum(r=>r.allowances?.special))}</td><td class="right">${fmt(sum(r=>r.allowances?.hazardous))}</td>
+          <td class="right">${fmt(sum(r=>r.allowances?.performance))}</td><td class="right">${fmt(sum(r=>r.allowances?.performanceAllow))}</td><td class="right">${fmt(sum(r=>r.allowances?.special))}</td><td class="right">${fmt(sum(r=>r.allowances?.hazardous))}</td>
           <td class="right">${fmt(sum(r=>r.allowances?.accommodation))}</td><td class="right">${fmt(sum(r=>r.allowances?.food))}</td>${laundryFt()}<td class="right">${fmt(sum(r=>r.allowances?.transport))}</td><td class="right">${fmt(sum(r=>r.allowances?.ramadan))}</td>
           <td class="right">${fmtDed(grandDed)}</td><td class="right">${DB.settings.currency} ${fmt(grandTotal)}</td><td class="right">${DB.settings.currency} ${fmt(grandNet)}</td><td></td>
           `}
@@ -3002,7 +3006,7 @@ function pageWageCard(main){
           const sums = {
             absent: rows.reduce((s,r)=> s + (r.noData?0:(ndays(r)||0)), 0),
             basic: sumField(r=>r.basicSalary),
-            performance: sumField(r=>r.allowances?.performance), special: sumField(r=>r.allowances?.special), hazardous: sumField(r=>r.allowances?.hazardous),
+            performance: sumField(r=>r.allowances?.performance), performanceAllow: sumField(r=>r.allowances?.performanceAllow), special: sumField(r=>r.allowances?.special), hazardous: sumField(r=>r.allowances?.hazardous),
             accommodation: sumField(r=>r.allowances?.accommodation), food: sumField(r=>r.allowances?.food), laundry: sumField(r=>r.allowances?.laundry), transport: sumField(r=>r.allowances?.transport), ramadan: sumField(r=>r.allowances?.ramadan),
             deduction: sumField(r=>getDeduction(r))
           };
@@ -3011,28 +3015,28 @@ function pageWageCard(main){
         <div class="tablewrap scrollbox"><table><thead><tr>
           <th>Month</th><th>Absent/Leave</th><th class="right">Basic (net)</th>
           ${otHeaderCells(colMode)}
-          <th class="right">Fix</th><th class="right">Special</th><th class="right">Hazardous</th><th class="right">${accHd}</th><th class="right">${foodHd}</th>${laundryTh}<th class="right">Transport</th><th class="right">Ramadan</th>
+          <th class="right">Fix</th><th class="right">Performance</th><th class="right">Special</th><th class="right">Hazardous</th><th class="right">${accHd}</th><th class="right">${foodHd}</th>${laundryTh}<th class="right">Transport</th><th class="right">Ramadan</th>
           <th class="right">Deduction</th><th class="right">Total Salary</th><th class="right">Net Salary</th>
         </tr></thead><tbody>
         ${(selEmp && rows.length)? rows.map(r=>r.noData ? `
           <tr>
             <td><b title="${monthLabel(r.mk)}">${monthShortLabel(r.mk)}</b></td>
-            <td colspan="${12+secCol+otColCount(colMode)}" class="empty" style="text-align:left;">No timesheet prepared/saved for this month</td>
+            <td colspan="${13+secCol+otColCount(colMode)}" class="empty" style="text-align:left;">No timesheet prepared/saved for this month</td>
           </tr>` : `
           <tr>
             <td><b title="${monthLabel(r.mk)}">${monthShortLabel(r.mk)}</b></td><td>${ndays(r)}</td>
             <td class="right">${fmt(r.basicSalary)}</td>
             ${otRowCells(r, colMode)}
-            <td class="right">${fmt(r.allowances?.performance)}</td><td class="right">${fmt(r.allowances?.special)}</td><td class="right">${fmt(r.allowances?.hazardous)}</td>
+            <td class="right">${fmt(r.allowances?.performance)}</td><td class="right">${fmt(r.allowances?.performanceAllow)}</td><td class="right">${fmt(r.allowances?.special)}</td><td class="right">${fmt(r.allowances?.hazardous)}</td>
             ${accFoodLaundryTd(r)}<td class="right">${fmt(r.allowances?.transport)}</td><td class="right">${fmt(r.allowances?.ramadan)}</td>
             <td class="right">${dashDed(getDeduction(r))}</td><td class="right">${fmt(r.totalSalary)}</td><td class="right"><b>${fmt(getNetSalary(r))}</b></td>
-          </tr>`).join(''): `<tr><td colspan="${13+secCol+otColCount(colMode)}" class="empty">${selEmp?'No data for this year.':'Select an employee above to see their Jan–Dec summary.'}</td></tr>`}
+          </tr>`).join(''): `<tr><td colspan="${14+secCol+otColCount(colMode)}" class="empty">${selEmp?'No data for this year.':'Select an employee above to see their Jan–Dec summary.'}</td></tr>`}
         </tbody>
         <tfoot><tr class="tfoot-total">
           <td>ANNUAL TOTAL</td><td>${sums.absent}</td>
           <td class="right">${fmt(sums.basic)}</td>
           ${otFooterCells(nonNoDataRows, colMode)}
-          <td class="right">${fmt(sums.performance)}</td><td class="right">${fmt(sums.special)}</td><td class="right">${fmt(sums.hazardous)}</td>
+          <td class="right">${fmt(sums.performance)}</td><td class="right">${fmt(sums.performanceAllow)}</td><td class="right">${fmt(sums.special)}</td><td class="right">${fmt(sums.hazardous)}</td>
           <td class="right">${fmt(sums.accommodation)}</td><td class="right">${fmt(sums.food)}</td><td class="right">${fmt(sums.laundry)}</td><td class="right">${fmt(sums.transport)}</td><td class="right">${fmt(sums.ramadan)}</td>
           <td class="right">${fmt(sums.deduction)}</td><td class="right">${DB.settings.currency} ${fmt(grand)}</td><td class="right">${DB.settings.currency} ${fmt(grandNet)}</td>
         </tr></tfoot>
@@ -3043,7 +3047,7 @@ function pageWageCard(main){
         <div class="tablewrap scrollbox"><table><thead><tr>
           <th>Code</th><th>Name</th>${statusEligible?'<th>Status</th>':''}<th>Absent/Leave</th><th class="right">Basic (net)</th>
           ${otHeaderCells(colMode)}
-          <th class="right">Fix</th><th class="right">Special</th><th class="right">Hazardous</th><th class="right">${accHd}</th><th class="right">${foodHd}</th>${laundryTh}<th class="right">Transport</th><th class="right">Ramadan</th>
+          <th class="right">Fix</th><th class="right">Performance</th><th class="right">Special</th><th class="right">Hazardous</th><th class="right">${accHd}</th><th class="right">${foodHd}</th>${laundryTh}<th class="right">Transport</th><th class="right">Ramadan</th>
           <th class="right">Deduction</th><th class="right">Total Salary</th><th class="right">Net Salary</th><th>Cost Center</th><th>Division</th>
         </tr></thead><tbody>
         ${rows.length? rows.map(r=>`
@@ -3053,16 +3057,16 @@ function pageWageCard(main){
             <td>${ndays(r)}</td>
             <td class="right">${fmt(r.basicSalary)}</td>
             ${otRowCells(r, colMode)}
-            <td class="right">${fmt(r.allowances?.performance)}</td><td class="right">${fmt(r.allowances?.special)}</td><td class="right">${fmt(r.allowances?.hazardous)}</td>
+            <td class="right">${fmt(r.allowances?.performance)}</td><td class="right">${fmt(r.allowances?.performanceAllow)}</td><td class="right">${fmt(r.allowances?.special)}</td><td class="right">${fmt(r.allowances?.hazardous)}</td>
             ${accFoodLaundryTd(r)}<td class="right">${fmt(r.allowances?.transport)}</td><td class="right">${fmt(r.allowances?.ramadan)}</td>
             <td class="right">${dashDed(getDeduction(r))}</td><td class="right">${fmt(r.totalSalary)}</td><td class="right"><b>${fmt(getNetSalary(r))}</b></td>
             <td>${accName(r.accountId)}</td><td>${divName(r.divisionId)}</td>
-          </tr>`).join(''): `<tr><td colspan="${17+secCol+otColCount(colMode)}" class="empty">${(statusEligible && viewMode!=='active' && viewMode!=='all')?`No employees with status "${STATUS_META[viewMode].label}" in this scope.`:((viewMode==='active' && statusEligible) ? `All ${counts.none} employee(s) in this scope have no timesheet yet — switch the dropdown above to "All statuses" to see them.` : 'No records for this scope/month.')}</td></tr>`}
+          </tr>`).join(''): `<tr><td colspan="${18+secCol+otColCount(colMode)}" class="empty">${(statusEligible && viewMode!=='active' && viewMode!=='all')?`No employees with status "${STATUS_META[viewMode].label}" in this scope.`:((viewMode==='active' && statusEligible) ? `All ${counts.none} employee(s) in this scope have no timesheet yet — switch the dropdown above to "All statuses" to see them.` : 'No records for this scope/month.')}</td></tr>`}
         </tbody>
         <tfoot><tr class="tfoot-total">
           <td colspan="${statusEligible?4:3}">GRAND TOTAL</td><td class="right">${fmt(sum(r=>r.basicSalary))}</td>
           ${otFooterCells(rows, colMode)}
-          <td class="right">${fmt(sum(r=>r.allowances?.performance))}</td><td class="right">${fmt(sum(r=>r.allowances?.special))}</td><td class="right">${fmt(sum(r=>r.allowances?.hazardous))}</td>
+          <td class="right">${fmt(sum(r=>r.allowances?.performance))}</td><td class="right">${fmt(sum(r=>r.allowances?.performanceAllow))}</td><td class="right">${fmt(sum(r=>r.allowances?.special))}</td><td class="right">${fmt(sum(r=>r.allowances?.hazardous))}</td>
           <td class="right">${fmt(sum(r=>r.allowances?.accommodation))}</td><td class="right">${fmt(sum(r=>r.allowances?.food))}</td><td class="right">${fmt(sum(r=>r.allowances?.laundry))}</td><td class="right">${fmt(sum(r=>r.allowances?.transport))}</td><td class="right">${fmt(sum(r=>r.allowances?.ramadan))}</td>
           <td class="right">${fmtDed(sum(r=>getDeduction(r)))}</td><td class="right">${DB.settings.currency} ${fmt(grand)}</td><td class="right">${DB.settings.currency} ${fmt(grandNet)}</td><td colspan="2"></td>
         </tr></tfoot>
@@ -3120,7 +3124,7 @@ function pageWageCard(main){
       const otValuesCsv = (r)=> colMode==='both' ? [r.normalOT,r.normalOTAmt.toFixed(2),r.fridayOT,r.fridayOTAmt.toFixed(2),r.phOT,r.phOTAmt.toFixed(2)]
         : (colMode==='hours' ? [r.normalOT,r.fridayOT,r.phOT] : [r.normalOTAmt.toFixed(2),r.fridayOTAmt.toFixed(2),r.phOTAmt.toFixed(2)]);
       if(isYearly){
-        csv = `Month,Absent/Leave,Basic (net),${otHeaderCsv},Fix,Special,Hazardous,${secView?'Accommodation Deduction':'Accommodation'},${secView?'Food Deduction':'Food'},Laundry,Transport,Ramadan,Deduction,Total Salary,Net Salary\n`;
+        csv = `Month,Absent/Leave,Basic (net),${otHeaderCsv},Fix,Performance,Special,Hazardous,${secView?'Accommodation Deduction':'Accommodation'},${secView?'Food Deduction':'Food'},Laundry,Transport,Ramadan,Deduction,Total Salary,Net Salary\n`;
         rows.forEach(r=>{
           if(r.noData){
             csv += [monthShortLabel(r.mk),'No timesheet prepared/saved for this month'].concat(Array(otValuesCsv({normalOT:0,normalOTAmt:0,fridayOT:0,fridayOTAmt:0,phOT:0,phOTAmt:0}).length+10).fill('')).map(csvEsc).join(',')+'\n';
@@ -3130,7 +3134,7 @@ function pageWageCard(main){
             const rowSec = isSecurityDivId(r.divisionId);
             const sgn = (v)=> rowSec ? -(v||0) : (v||0);
             csv += [monthShortLabel(r.mk),ndays(r),r.basicSalary].concat(otValuesCsv(r)).concat([
-              r.allowances?.performance||0, r.allowances?.special||0, r.allowances?.hazardous||0, sgn(r.allowances?.accommodation),
+              r.allowances?.performance||0, r.allowances?.performanceAllow||0, r.allowances?.special||0, r.allowances?.hazardous||0, sgn(r.allowances?.accommodation),
               sgn(r.allowances?.food)
             ]).concat([sgn(r.allowances?.laundry)]).concat([
               r.allowances?.transport||0, r.allowances?.ramadan||0, -(getDeduction(r)||0), r.totalSalary.toFixed(2), getNetSalary(r).toFixed(2)
@@ -3139,13 +3143,13 @@ function pageWageCard(main){
         });
         downloadCSV(csv, 'wage_card_yearly_'+(selEmp?selEmp.code:'employee')+'_'+year+'.csv');
       } else {
-        csv = `Code,Name,Absent/Leave,Basic (net),${otHeaderCsv},Fix,Special,Hazardous,${secView?'Accommodation Deduction':'Accommodation'},${secView?'Food Deduction':'Food'},Laundry,Transport,Ramadan,Deduction,Total Salary,Net Salary,Cost Center,Division\n`;
+        csv = `Code,Name,Absent/Leave,Basic (net),${otHeaderCsv},Fix,Performance,Special,Hazardous,${secView?'Accommodation Deduction':'Accommodation'},${secView?'Food Deduction':'Food'},Laundry,Transport,Ramadan,Deduction,Total Salary,Net Salary,Cost Center,Division\n`;
         rows.forEach(r=>{
           {
             const rowSec = isSecurityDivId(r.divisionId);
             const sgn = (v)=> rowSec ? -(v||0) : (v||0);
             csv += [r.code,r.name,ndays(r),r.basicSalary].concat(otValuesCsv(r)).concat([
-              r.allowances?.performance||0, r.allowances?.special||0, r.allowances?.hazardous||0, sgn(r.allowances?.accommodation),
+              r.allowances?.performance||0, r.allowances?.performanceAllow||0, r.allowances?.special||0, r.allowances?.hazardous||0, sgn(r.allowances?.accommodation),
               sgn(r.allowances?.food)
             ]).concat([sgn(r.allowances?.laundry)]).concat([
               r.allowances?.transport||0, r.allowances?.ramadan||0, -(getDeduction(r)||0), r.totalSalary.toFixed(2), getNetSalary(r).toFixed(2), accName(r.accountId), divName(r.divisionId)
@@ -3174,6 +3178,7 @@ const WC_PRINT_COLS = [
   {k:'basic', label:'Basic (net)'},
   {k:'ot', label:'OT Columns'},
   {k:'performance', label:'Fix'},
+  {k:'performanceAllow', label:'Performance'},
   {k:'special', label:'Special'},
   {k:'hazardous', label:'Hazardous'},
   {k:'accommodation', label:'Accommodation'},
@@ -3340,10 +3345,10 @@ function doWagePrint(o){
      prints whenever selected, regardless of division scope — so a mixed/"All Divisions" printout
      never silently drops a Security employee's Laundry Deduction figure. */
   const secScope = (o.div && isSecurityDivId(o.div)) || (o.emp && isSecurityEmp(byId(DB.employees, o.emp)));
-  const ALLOW_KEYS = ['performance','special','hazardous','accommodation','food','laundry','transport','ramadan'];
+  const ALLOW_KEYS = ['performance','performanceAllow','special','hazardous','accommodation','food','laundry','transport','ramadan'];
   const ALLOW_LABEL = secScope
-    ? {performance:'Fix', special:'Special', hazardous:'Hazardous', accommodation:'Accommodation<br>Deduction', food:'Food<br>Deduction', laundry:'Laundry<br>Deduction', transport:'Transport', ramadan:'Ramadan'}
-    : {performance:'Fix', special:'Special', hazardous:'Hazardous', accommodation:'Accommodation', food:'Food', laundry:'Laundry<br>Deduction', transport:'Transport', ramadan:'Ramadan'};
+    ? {performance:'Fix', performanceAllow:'Performance', special:'Special', hazardous:'Hazardous', accommodation:'Accommodation<br>Deduction', food:'Food<br>Deduction', laundry:'Laundry<br>Deduction', transport:'Transport', ramadan:'Ramadan'}
+    : {performance:'Fix', performanceAllow:'Performance', special:'Special', hazardous:'Hazardous', accommodation:'Accommodation', food:'Food', laundry:'Laundry<br>Deduction', transport:'Transport', ramadan:'Ramadan'};
 
   const rowsFor = (mk)=>{
     const saved = DB.payroll[mk]||{};
@@ -3357,7 +3362,7 @@ function doWagePrint(o){
     const all = emps.map(e=>{
     const agg = {empId:e.id, code:e.code, name:e.name, accountId:e.accountId, divisionId:e.divisionId,
       nonWorkedDays:0, basicSalary:0, normalOT:0, fridayOT:0, phOT:0, normalOTAmt:0, fridayOTAmt:0, phOTAmt:0,
-      allowances:{performance:0,special:0,hazardous:0,accommodation:0,food:0,laundry:0,transport:0,ramadan:0},
+      allowances:{performance:0,performanceAllow:0,special:0,hazardous:0,accommodation:0,food:0,laundry:0,transport:0,ramadan:0},
       deduction:0, totalSalary:0, netSalary:0};
     months.forEach(mk=>{
       const saved=(DB.payroll[mk]||{})[e.id];
