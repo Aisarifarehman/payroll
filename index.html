@@ -492,7 +492,31 @@ function mergeData(parsed){
   merged.settings.security    = Object.assign({enabled:false, staffLoginEnabled:false, adminEnabled:false, adminPasswordHash:'', staffList:[]}, ps.security||{});
   if(!Array.isArray(merged.activityLog)) merged.activityLog = [];
   if(!merged.readyStatus || typeof merged.readyStatus!=='object') merged.readyStatus = {};
+  sanitizeCrossDivisionCostCenters(merged);
   return merged;
+}
+/* Old builds let the browser silently default a day's Cost Center to the first account in the
+   global list (e.g. Laundry's L101/LDRV) for employees whose division has no analytic accounts.
+   Strip any stored per-day accountId (and employee accountId) that doesn't belong to the
+   employee's own division, so foreign Cost Centers stop appearing in Cost Centre Details. */
+function sanitizeCrossDivisionCostCenters(d){
+  try{
+    const accDiv = {}; // accountId -> divisionId
+    (d.accounts||[]).forEach(a=>{
+      const b=(d.blocks||[]).find(x=>x.id===a.blockId); if(!b) return;
+      const ar=(d.areas||[]).find(x=>x.id===b.areaId); if(!ar) return;
+      accDiv[a.id]=ar.divisionId;
+    });
+    (d.employees||[]).forEach(emp=>{
+      if(emp.accountId && accDiv[emp.accountId] && accDiv[emp.accountId]!==emp.divisionId) emp.accountId='';
+      const ts=(d.timesheets||{})[emp.id]; if(!ts) return;
+      Object.keys(ts).forEach(month=>{
+        (ts[month]||[]).forEach(r=>{
+          if(r && r.accountId && accDiv[r.accountId] && accDiv[r.accountId]!==emp.divisionId) r.accountId='';
+        });
+      });
+    });
+  }catch(e){ console.warn('sanitizeCrossDivisionCostCenters failed', e); }
 }
 function load(){
   try{
@@ -715,6 +739,16 @@ function accName(id){ const a=byId(DB.accounts,id); return a?(a.code+' - '+a.nam
 function areasOf(divId){ return DB.areas.filter(a=>a.divisionId===divId); }
 function blocksOf(areaId){ return DB.blocks.filter(b=>b.areaId===areaId); }
 function accountsOf(blockId){ return DB.accounts.filter(a=>a.blockId===blockId); }
+/* Only the analytic accounts that actually belong to a division (account → block → area → division chain).
+   Prevents Cost Centers from one division (e.g. Laundry's L101/LDRV) leaking into another division's dropdowns. */
+function accountsOfDivision(divId){
+  if(!divId) return DB.accounts;
+  return DB.accounts.filter(a=>{
+    const b = byId(DB.blocks, a.blockId); if(!b) return false;
+    const ar = byId(DB.areas, b.areaId); if(!ar) return false;
+    return ar.divisionId === divId;
+  });
+}
 function fmt(n){ n = Number(n)||0; return n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function matchesSearch(emp, term){ if(!term) return true; term = term.toLowerCase(); return (emp.code||'').toLowerCase().includes(term) || (emp.name||'').toLowerCase().includes(term); }
 /* Display helpers so zero values don't clutter tables: dash(n) for plain-text money cells, dashN(n) for plain
@@ -1800,8 +1834,9 @@ function pageTimesheet(main){
         <td><input class="tsi" type="number" step="0.5" min="0" max="10" data-emp="${uidTag}" data-idx="${idx}" data-f="normalOT" value="${r.normalOT}" style="width:55px;"></td>
         <td><input class="tsi" type="number" step="0.5" min="0" max="10" data-emp="${uidTag}" data-idx="${idx}" data-f="fridayOT" value="${r.fridayOT}" style="width:55px;"></td>
         <td><input class="tsi" type="number" step="0.5" min="0" max="10" data-emp="${uidTag}" data-idx="${idx}" data-f="phOT" value="${r.phOT}" style="width:55px;"></td>
-        <td><select class="tsi" data-emp="${uidTag}" data-idx="${idx}" data-f="accountId" style="width:120px;" title="Cost Center this day's work is charged to. Defaults to the employee's current Cost Center; change it for any day worked at a different site.">
-          ${DB.accounts.map(a=>`<option value="${a.id}" ${(r.accountId||emp.accountId)===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('')}
+        <td><select class="tsi" data-emp="${uidTag}" data-idx="${idx}" data-f="accountId" style="width:120px;" title="Cost Center this day's work is charged to. Defaults to the employee's current Cost Center; change it for any day worked at a different site. Only Cost Centers of this employee's Division are listed.">
+          <option value="" ${!(r.accountId||emp.accountId)?'selected':''}>—</option>
+          ${accountsOfDivision(emp.divisionId).map(a=>`<option value="${a.id}" ${(r.accountId||emp.accountId)===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('')}
         </select></td>
         <td class="right no-print"><button class="btn-icon del" data-clear="${idx}" data-emp="${uidTag}">✕</button></td>
       </tr>`;
@@ -3682,14 +3717,18 @@ function pageCostCentre(main){
           <div class="fitem"><label>Division</label><select id="ccDiv"><option value="">All</option>${DB.divisions.map(d=>`<option value="${d.id}" ${f.division===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div>
           <div class="fitem"><label>Employee (Code / Name)</label><input type="text" id="ccSearch" placeholder="Search code or name..." value="${esc(f.search)}"></div>
           <div class="fitem"><label>Employee</label><select id="ccEmp"><option value="">— All employees in scope —</option>${emps.map(e=>`<option value="${e.id}" ${f.employeeId===e.id?'selected':''}>${e.code} - ${e.name}</option>`).join('')}</select></div>
-          <div class="fitem"><label>Cost Center</label><select id="ccAcct"><option value="">All</option>${DB.accounts.map(a=>`<option value="${a.id}" ${f.accountId===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Cost Center</label><select id="ccAcct"><option value="">All</option>${accountsOfDivision(f.division).map(a=>`<option value="${a.id}" ${f.accountId===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('')}</select></div>
         </div>
         <p class="smallnote">${emps.length} employee(s) match current filters, for ${monthLabel(f.month)} (${daysInMonth(f.month)} days).</p>
       </div>
       <div id="ccResults"></div>
     `;
     wireMonthYearPicker('ccMonth', (newMonth)=>{ f.month=newMonth; renderResults(); });
-    document.getElementById('ccDiv').onchange=(e)=>{f.division=e.target.value; f.employeeId=''; renderInner();};
+    document.getElementById('ccDiv').onchange=(e)=>{
+      f.division=e.target.value; f.employeeId='';
+      if(f.accountId && !accountsOfDivision(f.division).some(a=>a.id===f.accountId)) f.accountId='';
+      renderInner();
+    };
     document.getElementById('ccSearch').oninput=(e)=>{
       f.search=e.target.value; f.employeeId=''; renderInner();
       const el = document.getElementById('ccSearch'); el.focus(); el.setSelectionRange(f.search.length, f.search.length);
@@ -4030,7 +4069,7 @@ function pageSettings(main){
         document.getElementById('impReplaceBtn').onclick = ()=>{
           closeModal();
           confirmDelete('Importing this backup will REPLACE all current data in this app. Continue?', ()=>{
-            DB = Object.assign(defaultData(), parsed);
+            DB = mergeData(parsed);
             saveNow(); toast('Backup imported (full replace)'); renderPage();
           });
         };
