@@ -452,11 +452,13 @@ function defaultData(){
   const areas = [];
   const blocks = [];
   const accounts = [];
+  const analyticAccounts = []; // sub-level under a Cost Center: {id, accountId, code, name}
   const employees = [];
 
   return {
     divisions: divisions,
     areas: areas, blocks: blocks, accounts: accounts,
+    analyticAccounts: analyticAccounts,
     employees: employees,
     timesheets:{}, // employeeId -> monthKey -> [dayEntry]
     timesheetTouched:{}, // employeeId -> monthKey -> true, ONLY set on a genuine user edit (never just from viewing/generating default rows)
@@ -546,7 +548,8 @@ const NAV = [
     {id:'divisions', label:'Divisions', icon:'🏢'},
     {id:'areas', label:'Areas', icon:'📍'},
     {id:'blocks', label:'Regions', icon:'🧱'},
-    {id:'accounts', label:'Cost Centers', icon:'🔢'}
+    {id:'accounts', label:'Cost Centers', icon:'🔢'},
+    {id:'subaccounts', label:'Analytic Accounts', icon:'🧾'}
   ]},
   {group:'People', items:[
     {id:'employees', label:'Employees', icon:'👥'},
@@ -599,7 +602,7 @@ function renderPage(){
   const main = document.getElementById('main');
   const renderers = {
     dashboard: pageDashboard, divisions: ()=>pageStructure('divisions'), areas: ()=>pageStructure('areas'),
-    blocks: ()=>pageStructure('blocks'), accounts: ()=>pageStructure('accounts'),
+    blocks: ()=>pageStructure('blocks'), accounts: ()=>pageStructure('accounts'), subaccounts: ()=>pageStructure('subaccounts'),
     employees: pageEmployees, transfers: pageTransfers, timesheet: pageTimesheet,
     hazardous: pageHazardous,
     salary: pageSalary, wagecard: pageWageCard, costcenter: pageCostCentre, settings: pageSettings
@@ -728,9 +731,12 @@ function divName(id){ const d=byId(DB.divisions,id); return d?d.name:'—'; }
 function areaName(id){ const a=byId(DB.areas,id); return a?a.name:'—'; }
 function blockName(id){ const b=byId(DB.blocks,id); return b?b.name:'—'; }
 function accName(id){ const a=byId(DB.accounts,id); return a?(a.code+' - '+a.name):'—'; }
+function subAccName(id){ const s=byId(DB.analyticAccounts,id); return s?((s.code?s.code+' - ':'')+s.name):'—'; }
 function areasOf(divId){ return DB.areas.filter(a=>a.divisionId===divId); }
 function blocksOf(areaId){ return DB.blocks.filter(b=>b.areaId===areaId); }
 function accountsOf(blockId){ return DB.accounts.filter(a=>a.blockId===blockId); }
+/* Analytic Accounts are a sub-level under a Cost Center (e.g. Cost Center S2003 → Analytic Account A001). */
+function subAccountsOf(accountId){ return DB.analyticAccounts.filter(s=>s.accountId===accountId); }
 /* Only the analytic accounts that actually belong to a division (account → block → area → division chain).
    Prevents Cost Centers from one division (e.g. Laundry's L101/LDRV) leaking into another division's dropdowns. */
 function accountsOfDivision(divId){
@@ -827,6 +833,7 @@ function pageDashboard(main){
       <div class="stat"><div class="num">${DB.areas.length}</div><div class="lbl">Working Areas</div></div>
       <div class="stat"><div class="num">${DB.blocks.length}</div><div class="lbl">Regions</div></div>
       <div class="stat"><div class="num">${DB.accounts.length}</div><div class="lbl">Cost Centers</div></div>
+      <div class="stat"><div class="num">${DB.analyticAccounts.length}</div><div class="lbl">Analytic Accounts</div></div>
       <div class="stat"><div class="num">${activeEmp}</div><div class="lbl">Active Employees</div></div>
       <div class="stat"><div class="num">${DB.settings.currency} ${fmt(payrollTotal)}</div><div class="lbl">Payroll (this month, calculated)</div></div>
     </div>
@@ -844,7 +851,7 @@ function pageDashboard(main){
     </div>
     <div class="card">
       <h3>Quick Start</h3>
-      <p class="smallnote">1. Add Divisions → Working Areas → Regions → Cost Centers under <b>Company Structure</b>.<br>
+      <p class="smallnote">1. Add Divisions → Working Areas → Regions → Cost Centers → Analytic Accounts under <b>Company Structure</b>.<br>
       2. Add employees under <b>Employees</b>, assigning them a Division/Area/Block/Account and their allowances.<br>
       3. Fill daily attendance under <b>Daily Timesheet</b> for each month.<br>
       4. Run <b>Salary Calculation</b> to compute totals, then view/export the <b>Wage Card</b>.<br>
@@ -858,7 +865,8 @@ const STRUCT_CONF = {
   divisions:{ title:'Divisions', arr:'divisions', parentKey:null, fields:[{k:'name',label:'Division Name',type:'text'}] },
   areas:{ title:'Working Areas', arr:'areas', parentKey:'divisionId', parentArr:'divisions', parentLabel:'Division', fields:[{k:'name',label:'Working Area Name',type:'text'}] },
   blocks:{ title:'Regions', arr:'blocks', parentKey:'areaId', parentArr:'areas', parentLabel:'Working Area', fields:[{k:'name',label:'Region Name',type:'text'}] },
-  accounts:{ title:'Cost Centers', arr:'accounts', parentKey:'blockId', parentArr:'blocks', parentLabel:'Region', fields:[{k:'code',label:'Cost Center Code',type:'text'},{k:'name',label:'Cost Center Name',type:'text'}] }
+  accounts:{ title:'Cost Centers', arr:'accounts', parentKey:'blockId', parentArr:'blocks', parentLabel:'Region', fields:[{k:'code',label:'Cost Center Code',type:'text'},{k:'name',label:'Cost Center Name',type:'text'}] },
+  subaccounts:{ title:'Analytic Accounts', arr:'analyticAccounts', parentKey:'accountId', parentArr:'accounts', parentLabel:'Cost Center', fields:[{k:'code',label:'Analytic Account Code',type:'text'},{k:'name',label:'Analytic Account Name',type:'text'}] }
 };
 
 function pageStructure(kind){
@@ -1077,16 +1085,18 @@ function pageStructure(kind){
     if(kind==='areas') return divName(r.divisionId);
     if(kind==='blocks') return areaName(r.areaId);
     if(kind==='accounts') return blockName(r.blockId);
+    if(kind==='subaccounts') return accName(r.accountId);
     return '—';
   }
   function countLinkedEmployees(kind,id){
-    const key = {divisions:'divisionId',areas:'areaId',blocks:'blockId',accounts:'accountId'}[kind];
+    const key = {divisions:'divisionId',areas:'areaId',blocks:'blockId',accounts:'accountId',subaccounts:'analyticAccountId'}[kind];
     return DB.employees.filter(e=>e[key]===id).length;
   }
   function countChildRecords(kind,id){
     if(kind==='divisions') return DB.areas.filter(a=>a.divisionId===id).length;
     if(kind==='areas') return DB.blocks.filter(b=>b.areaId===id).length;
     if(kind==='blocks') return DB.accounts.filter(a=>a.blockId===id).length;
+    if(kind==='accounts') return DB.analyticAccounts.filter(s=>s.accountId===id).length;
     return 0;
   }
 
@@ -1227,12 +1237,12 @@ function pageEmployees(main){
           <div class="fitem"><label>Status</label><select id="fStatus"><option value="">All</option><option ${f.status==='Active'?'selected':''}>Active</option><option ${f.status==='Inactive'?'selected':''}>Inactive</option></select></div>
         </div>
         <div class="tablewrap"><table><thead><tr>
-          <th>Code</th><th>Name</th><th>Designation</th><th>Division</th><th>Working Area</th><th>Region</th><th>Cost Center</th><th class="right">Basic</th><th>Status</th><th class="right">Actions</th>
+          <th>Code</th><th>Name</th><th>Designation</th><th>Division</th><th>Working Area</th><th>Region</th><th>Cost Center</th><th>Analytic Account</th><th class="right">Basic</th><th>Status</th><th class="right">Actions</th>
         </tr></thead><tbody>
         ${rows.length? rows.map(e=>`
           <tr>
             <td><b>${e.code}</b></td><td>${e.name}</td><td>${e.designation||'—'}</td>
-            <td>${divName(e.divisionId)}</td><td>${areaName(e.areaId)}</td><td>${blockName(e.blockId)}</td><td>${accName(e.accountId)}</td>
+            <td>${divName(e.divisionId)}</td><td>${areaName(e.areaId)}</td><td>${blockName(e.blockId)}</td><td>${accName(e.accountId)}</td><td>${subAccName(e.analyticAccountId)}</td>
             <td class="right">${fmt(e.basicSalary)}</td>
             <td><span class="pill ${(e.status||'Active')==='Active'?'active':'inactive'}">${e.status||'Active'}</span></td>
             <td class="right">
@@ -1241,7 +1251,7 @@ function pageEmployees(main){
               <button class="btn-icon" data-transfer="${e.id}">🔄</button>
               <button class="btn-icon del" data-del="${e.id}">🗑️</button>
             </td>
-          </tr>`).join('') : `<tr><td colspan="10" class="empty">No employees match. Click "+ Add Employee" to create one.</td></tr>`}
+          </tr>`).join('') : `<tr><td colspan="11" class="empty">No employees match. Click "+ Add Employee" to create one.</td></tr>`}
         </tbody></table></div>
       </div>
     `;
@@ -1277,6 +1287,8 @@ function pageEmployees(main){
     const block = editing?editing.blockId:(blocksList[0]?.id||'');
     const accountsList = accountsOf(block);
     const acc = editing? editing.accountId : (accountsList[0]?.id||'');
+    const subAccountsList = subAccountsOf(acc);
+    const subAcc = editing? editing.analyticAccountId : (subAccountsList[0]?.id||'');
     const allow = editing? (editing.allowances||{}) : {};
     const ded   = editing? (editing.deductions||{}) : {};
     const docs  = editing? (editing.docs||{}) : {};
@@ -1299,6 +1311,8 @@ function pageEmployees(main){
           <a href="#" class="qc-link" data-qc="blocks" data-qc-label="Region" style="display:inline-block;margin-top:4px;font-size:11.5px;color:var(--gold);text-decoration:none;">+ New Region</a></div>
         <div><label>Cost Center</label><select id="e_account"></select>
           <a href="#" class="qc-link" data-qc="accounts" data-qc-label="Cost Center" style="display:inline-block;margin-top:4px;font-size:11.5px;color:var(--gold);text-decoration:none;">+ New Cost Center</a></div>
+        <div><label>Analytic Account</label><select id="e_subacc"></select>
+          <a href="#" class="qc-link" data-qc="subaccounts" data-qc-label="Analytic Account" style="display:inline-block;margin-top:4px;font-size:11.5px;color:var(--gold);text-decoration:none;">+ New Analytic Account</a></div>
       </div>
       <hr class="divider">
       <div class="formgrid c2">
@@ -1339,15 +1353,23 @@ function pageEmployees(main){
     function refreshAccountSelect(selBlock, selAcc){
       const list = accountsOf(selBlock);
       document.getElementById('e_account').innerHTML = list.map(a=>`<option value="${a.id}" ${selAcc===a.id?'selected':''}>${a.code} - ${a.name}</option>`).join('') || '<option value="">— none —</option>';
+      refreshSubAccountSelect(selAcc || (list[0]?.id||''), editing?editing.analyticAccountId:null);
+    }
+    // Analytic Account is a sub-level under the chosen Cost Center (e.g. Cost Center S2003 → Analytic Account A001).
+    function refreshSubAccountSelect(selAcc, selSub){
+      const list = subAccountsOf(selAcc);
+      document.getElementById('e_subacc').innerHTML = list.map(s=>`<option value="${s.id}" ${selSub===s.id?'selected':''}>${s.code?s.code+' - ':''}${s.name}</option>`).join('') || '<option value="">— none —</option>';
     }
     document.getElementById('e_division').onchange = (e)=>refreshAreaSelect(e.target.value,'');
     document.getElementById('e_area').addEventListener('change',(e)=>refreshBlockSelect(e.target.value,''));
     document.getElementById('e_block').addEventListener('change',(e)=>refreshAccountSelect(e.target.value,''));
+    document.getElementById('e_account').addEventListener('change',(e)=>refreshSubAccountSelect(e.target.value,''));
     // wire dynamic listeners after each area/block refresh (delegation via re-query since innerHTML replaced)
     const origRefreshArea = refreshAreaSelect;
     refreshAreaSelect(div, area);
     document.getElementById('e_area').onchange = (e)=>refreshBlockSelect(e.target.value,'');
     document.getElementById('e_block').onchange = (e)=>refreshAccountSelect(e.target.value,'');
+    document.getElementById('e_account').onchange = (e)=>refreshSubAccountSelect(e.target.value,'');
 
     // Reads the form fields into a plain data object. Returns null (and toasts) if required
     // fields are missing. IMPORTANT: this must be called BEFORE any modal content swap (e.g.
@@ -1364,6 +1386,7 @@ function pageEmployees(main){
         areaId: document.getElementById('e_area').value,
         blockId: document.getElementById('e_block').value,
         accountId: document.getElementById('e_account').value,
+        analyticAccountId: document.getElementById('e_subacc').value,
         basicSalary: parseFloat(document.getElementById('e_basic').value)||0,
         joinDate: document.getElementById('e_join').value,
         allowances: {},
@@ -1428,6 +1451,7 @@ function pageEmployees(main){
         <div><b>Area:</b> ${areaName(e.areaId)}</div>
         <div><b>Block:</b> ${blockName(e.blockId)}</div>
         <div><b>Account:</b> ${accName(e.accountId)}</div>
+        <div><b>Analytic Account:</b> ${subAccName(e.analyticAccountId)}</div>
         <div><b>Basic Salary:</b> ${DB.settings.currency} ${fmt(e.basicSalary)}</div>
         <div><b>Joining Date:</b> ${e.joinDate||'—'}</div>
       </div>
@@ -1452,9 +1476,9 @@ function pageEmployees(main){
   }
 
   function exportEmployeesCSV(rows){
-    let csv = 'Code,Name,Designation,Division,Area,Block,Account,Basic Salary,Status\n';
+    let csv = 'Code,Name,Designation,Division,Area,Block,Account,Analytic Account,Basic Salary,Status\n';
     rows.forEach(e=>{
-      csv += [e.code,e.name,e.designation||'',divName(e.divisionId),areaName(e.areaId),blockName(e.blockId),accName(e.accountId),e.basicSalary,e.status||'Active'].map(csvEsc).join(',')+'\n';
+      csv += [e.code,e.name,e.designation||'',divName(e.divisionId),areaName(e.areaId),blockName(e.blockId),accName(e.accountId),subAccName(e.analyticAccountId),e.basicSalary,e.status||'Active'].map(csvEsc).join(',')+'\n';
     });
     downloadCSV(csv, 'employees.csv');
   }
@@ -3656,8 +3680,8 @@ function mergeBackupData(parsed){
     if(!x || !y) return false;
     return x===y || x.includes(y) || y.includes(x);
   };
-  const res = {divisions:0, areas:0, blocks:0, accounts:0, newEmployees:0, updatedEmployees:0, timesheetMonths:0, payrollRecs:0, hazardousRecs:0};
-  const divMap={}, areaMap={}, blockMap={}, accMap={}, empMap={};
+  const res = {divisions:0, areas:0, blocks:0, accounts:0, subaccounts:0, newEmployees:0, updatedEmployees:0, timesheetMonths:0, payrollRecs:0, hazardousRecs:0};
+  const divMap={}, areaMap={}, blockMap={}, accMap={}, subAccMap={}, empMap={};
   (parsed.divisions||[]).forEach(d=>{
     const ex = DB.divisions.find(x=>namesMatch(x.name, d.name));
     if(ex){ divMap[d.id]=ex.id; }
@@ -3681,13 +3705,22 @@ function mergeBackupData(parsed){
     if(ex){ accMap[c.id]=ex.id; }
     else { const nc={id:uid(), blockId:blockId, code:c.code||'', name:c.name||''}; DB.accounts.push(nc); accMap[c.id]=nc.id; res.accounts++; }
   });
+  // Analytic Accounts are a sub-level under a Cost Center — matched/remapped the same way Cost
+  // Centers are matched under Regions, just one level deeper.
+  (parsed.analyticAccounts||[]).forEach(s=>{
+    const accountId = accMap[s.accountId]||s.accountId||'';
+    const ex = DB.analyticAccounts.find(x=> (s.code && normKey(x.code)===normKey(s.code)) || (x.accountId===accountId && namesMatch(x.name, s.name)) );
+    if(ex){ subAccMap[s.id]=ex.id; }
+    else { const ns={id:uid(), accountId:accountId, code:s.code||'', name:s.name||''}; DB.analyticAccounts.push(ns); subAccMap[s.id]=ns.id; res.subaccounts++; }
+  });
   (parsed.employees||[]).forEach(emp=>{
     const ex = DB.employees.find(x=> (emp.code && normKey(x.code)===normKey(emp.code)) || (!emp.code && normKey(x.name)===normKey(emp.name)) );
     const remapped = {
       divisionId: divMap[emp.divisionId]||emp.divisionId||'',
       areaId: areaMap[emp.areaId]||emp.areaId||'',
       blockId: blockMap[emp.blockId]||emp.blockId||'',
-      accountId: accMap[emp.accountId]||emp.accountId||''
+      accountId: accMap[emp.accountId]||emp.accountId||'',
+      analyticAccountId: subAccMap[emp.analyticAccountId]||emp.analyticAccountId||''
     };
     if(ex){
       // Overwrite the existing employee's fields with the imported ones (keep its existing id
@@ -4160,7 +4193,7 @@ function pageSettings(main){
         document.getElementById('impMergeBtn').onclick = ()=>{
           const r = mergeBackupData(parsed);
           saveNow(); closeModal(); renderPage();
-          toast(`Merged: +${r.newEmployees} new employees (${r.updatedEmployees} updated), +${r.divisions+r.areas+r.blocks+r.accounts} new structure items, ${r.timesheetMonths} timesheet months imported, ${r.payrollRecs} payroll records imported`);
+          toast(`Merged: +${r.newEmployees} new employees (${r.updatedEmployees} updated), +${r.divisions+r.areas+r.blocks+r.accounts+r.subaccounts} new structure items, ${r.timesheetMonths} timesheet months imported, ${r.payrollRecs} payroll records imported`);
         };
         document.getElementById('impReplaceBtn').onclick = ()=>{
           closeModal();
