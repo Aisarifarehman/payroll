@@ -540,8 +540,8 @@ const NAV = [
   {group:'Company Structure', items:[
     {id:'divisions', label:'Divisions', icon:'🏢'},
     {id:'areas', label:'Areas', icon:'📍'},
-    {id:'blocks', label:'Blocks', icon:'🧱'},
-    {id:'accounts', label:'Analytic Accounts', icon:'🔢'}
+    {id:'blocks', label:'Regions', icon:'🧱'},
+    {id:'accounts', label:'Cost Centers', icon:'🔢'}
   ]},
   {group:'People', items:[
     {id:'employees', label:'Employees', icon:'👥'},
@@ -794,15 +794,15 @@ function pageDashboard(main){
     <div class="pageheader"><div><h2>Dashboard</h2><div class="sub">Overview of company structure and payroll — ${monthLabel(mk)}</div></div></div>
     <div class="stats">
       <div class="stat"><div class="num">${DB.divisions.length}</div><div class="lbl">Divisions</div></div>
-      <div class="stat"><div class="num">${DB.areas.length}</div><div class="lbl">Areas</div></div>
-      <div class="stat"><div class="num">${DB.blocks.length}</div><div class="lbl">Blocks</div></div>
-      <div class="stat"><div class="num">${DB.accounts.length}</div><div class="lbl">Analytic Accounts</div></div>
+      <div class="stat"><div class="num">${DB.areas.length}</div><div class="lbl">Analytic Accounts</div></div>
+      <div class="stat"><div class="num">${DB.blocks.length}</div><div class="lbl">Regions</div></div>
+      <div class="stat"><div class="num">${DB.accounts.length}</div><div class="lbl">Cost Centers</div></div>
       <div class="stat"><div class="num">${activeEmp}</div><div class="lbl">Active Employees</div></div>
       <div class="stat"><div class="num">${DB.settings.currency} ${fmt(payrollTotal)}</div><div class="lbl">Payroll (this month, calculated)</div></div>
     </div>
     <div class="card">
       <h3>Employees by Division</h3>
-      <div class="tablewrap"><table><thead><tr><th>Division</th><th>Areas</th><th>Blocks</th><th>Employees</th></tr></thead><tbody>
+      <div class="tablewrap"><table><thead><tr><th>Division</th><th>Analytic Accounts</th><th>Regions</th><th>Employees</th></tr></thead><tbody>
       ${DB.divisions.map(d=>{
         const areas = areasOf(d.id);
         const areaIds = areas.map(a=>a.id);
@@ -814,7 +814,7 @@ function pageDashboard(main){
     </div>
     <div class="card">
       <h3>Quick Start</h3>
-      <p class="smallnote">1. Add Divisions → Areas → Blocks → Analytic Accounts (cost centers) under <b>Company Structure</b>.<br>
+      <p class="smallnote">1. Add Divisions → Analytic Accounts → Regions → Cost Centers under <b>Company Structure</b>.<br>
       2. Add employees under <b>Employees</b>, assigning them a Division/Area/Block/Account and their allowances.<br>
       3. Fill daily attendance under <b>Daily Timesheet</b> for each month.<br>
       4. Run <b>Salary Calculation</b> to compute totals, then view/export the <b>Wage Card</b>.<br>
@@ -826,9 +826,9 @@ function pageDashboard(main){
 /* ============================= COMPANY STRUCTURE (Divisions/Areas/Blocks/Accounts) ============================= */
 const STRUCT_CONF = {
   divisions:{ title:'Divisions', arr:'divisions', parentKey:null, fields:[{k:'name',label:'Division Name',type:'text'}] },
-  areas:{ title:'Areas', arr:'areas', parentKey:'divisionId', parentArr:'divisions', parentLabel:'Division', fields:[{k:'name',label:'Area Name',type:'text'}] },
-  blocks:{ title:'Blocks', arr:'blocks', parentKey:'areaId', parentArr:'areas', parentLabel:'Area', fields:[{k:'name',label:'Block Name',type:'text'}] },
-  accounts:{ title:'Analytic Accounts', arr:'accounts', parentKey:'blockId', parentArr:'blocks', parentLabel:'Block', fields:[{k:'code',label:'Account Code (Cost Center)',type:'text'},{k:'name',label:'Account Name',type:'text'}] }
+  areas:{ title:'Analytic Accounts', arr:'areas', parentKey:'divisionId', parentArr:'divisions', parentLabel:'Division', fields:[{k:'name',label:'Analytic Account Name',type:'text'}] },
+  blocks:{ title:'Regions', arr:'blocks', parentKey:'areaId', parentArr:'areas', parentLabel:'Analytic Account', fields:[{k:'name',label:'Region Name',type:'text'}] },
+  accounts:{ title:'Cost Centers', arr:'accounts', parentKey:'blockId', parentArr:'blocks', parentLabel:'Region', fields:[{k:'code',label:'Cost Center Code',type:'text'},{k:'name',label:'Cost Center Name',type:'text'}] }
 };
 
 function pageStructure(kind){
@@ -874,7 +874,7 @@ function pageStructure(kind){
   }
 
   /* The expanded breakdown row: a real table of names + employee counts,
-     laid out like the Excel sheet (Area → Blocks → Analytic Account). */
+     laid out like the Excel sheet (Area → Blocks → Cost Center). */
   function breakdownHTML(divId, col, colspan){
     const areas = divAreas(divId);
     let head='', body='', foot='', title='';
@@ -887,7 +887,7 @@ function pageStructure(kind){
     }
     else if(col==='blocks'){
       title = 'Blocks in this division';
-      head = `<tr><th>Area</th><th>Block Name</th><th style="text-align:right;">Employees</th></tr>`;
+      head = `<tr><th>Analytic Account</th><th>Region Name</th><th style="text-align:right;">Employees</th></tr>`;
       const blocks = divBlocks(divId);
       body = blocks.map(b=>{
         const ar = byId(DB.areas, b.areaId);
@@ -896,8 +896,8 @@ function pageStructure(kind){
       foot = `<tr><td colspan="2">TOTAL (${blocks.length})</td><td class="num">${blocks.reduce((s,b)=>s+empsInBlock(b.id),0)}</td></tr>`;
     }
     else { // accounts
-      title = 'Analytic Accounts in this division';
-      head = `<tr><th>Block</th><th>Account Code</th><th>Account Name</th><th style="text-align:right;">Employees</th></tr>`;
+      title = 'Cost Centers in this division';
+      head = `<tr><th>Region</th><th>Cost Center Code</th><th>Cost Center Name</th><th style="text-align:right;">Employees</th></tr>`;
       const accts = divAccounts(divId);
       body = accts.map(a=>{
         const bl = byId(DB.blocks, a.blockId);
@@ -947,15 +947,15 @@ function pageStructure(kind){
           <select id="filterParent"><option value="">All</option>${DB[conf.parentArr].map(p=>`<option value="${p.id}" ${filterParent===p.id?'selected':''}>${p.name}</option>`).join('')}</select>
         </div>` : ''}
           ${isDiv ? `
-          <div class="fitem"><label>Area</label><select id="dfArea"><option value="">All Areas</option>${areaOpts.map(a=>`<option value="${a.id}" ${fArea===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
-          <div class="fitem"><label>Block</label><select id="dfBlock"><option value="">All Blocks</option>${blockOpts.map(b=>`<option value="${b.id}" ${fBlock===b.id?'selected':''}>${b.name}</option>`).join('')}</select></div>
-          <div class="fitem"><label>Analytic Account</label><select id="dfAcct"><option value="">All Accounts</option>${acctOpts.map(a=>`<option value="${a.id}" ${fAcct===a.id?'selected':''}>${a.code} - ${a.name}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Analytic Account</label><select id="dfArea"><option value="">All Analytic Accounts</option>${areaOpts.map(a=>`<option value="${a.id}" ${fArea===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Region</label><select id="dfBlock"><option value="">All Regions</option>${blockOpts.map(b=>`<option value="${b.id}" ${fBlock===b.id?'selected':''}>${b.name}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Cost Center</label><select id="dfAcct"><option value="">All Cost Centers</option>${acctOpts.map(a=>`<option value="${a.id}" ${fAcct===a.id?'selected':''}>${a.code} - ${a.name}</option>`).join('')}</select></div>
           ` : ''}
         </div>
         <div class="tablewrap"><table><thead><tr>
           ${conf.parentKey?`<th>${conf.parentLabel}</th>`:''}
           ${conf.fields.map(f=>`<th>${f.label}</th>`).join('')}
-          ${isDiv ? `<th>Total Employees</th><th>Areas</th><th>Blocks</th><th>Analytic Account</th>` : `<th>Employees</th>`}
+          ${isDiv ? `<th>Total Employees</th><th>Analytic Accounts</th><th>Regions</th><th>Cost Center</th>` : `<th>Employees</th>`}
           <th class="right">Actions</th>
         </tr></thead><tbody>
         ${rows.length? rows.map(r=>{
@@ -1023,7 +1023,7 @@ function pageStructure(kind){
       const clr = document.getElementById('divClearBtn');
       if(clr) clr.onclick = ()=>{ search=''; fArea=''; fBlock=''; fAcct=''; renderInner(); };
       document.getElementById('divCsvBtn').onclick = ()=>{
-        const head = ['Division','Total Employees','Areas','Blocks','Analytic Account'];
+        const head = ['Division','Total Employees','Analytic Accounts','Regions','Cost Center'];
         const body = rows.map(r=>[r.name, countLinkedEmployees(kind,r.id), divAreas(r.id).length, divBlocks(r.id).length, divAccounts(r.id).length]);
         const csv = [head, ...body].map(line=>line.map(csvEsc).join(',')).join('\n');
         const url = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
@@ -1189,12 +1189,12 @@ function pageEmployees(main){
         <div class="filters">
           <div class="fitem"><label>Search</label><input id="searchEmp" placeholder="Name or code..." value="${f.search}"></div>
           <div class="fitem"><label>Division</label><select id="fDivision"><option value="">All</option>${DB.divisions.map(d=>`<option value="${d.id}" ${f.division===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div>
-          <div class="fitem"><label>Area</label><select id="fArea"><option value="">All</option>${areasOf(f.division||null).map(a=>`<option value="${a.id}" ${f.area===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
-          <div class="fitem"><label>Block</label><select id="fBlock"><option value="">All</option>${blocksOf(f.area||null).map(b=>`<option value="${b.id}" ${f.block===b.id?'selected':''}>${b.name}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Analytic Account</label><select id="fArea"><option value="">All</option>${areasOf(f.division||null).map(a=>`<option value="${a.id}" ${f.area===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Region</label><select id="fBlock"><option value="">All</option>${blocksOf(f.area||null).map(b=>`<option value="${b.id}" ${f.block===b.id?'selected':''}>${b.name}</option>`).join('')}</select></div>
           <div class="fitem"><label>Status</label><select id="fStatus"><option value="">All</option><option ${f.status==='Active'?'selected':''}>Active</option><option ${f.status==='Inactive'?'selected':''}>Inactive</option></select></div>
         </div>
         <div class="tablewrap"><table><thead><tr>
-          <th>Code</th><th>Name</th><th>Designation</th><th>Division</th><th>Area</th><th>Block</th><th>Account</th><th class="right">Basic</th><th>Status</th><th class="right">Actions</th>
+          <th>Code</th><th>Name</th><th>Designation</th><th>Division</th><th>Analytic Account</th><th>Region</th><th>Cost Center</th><th class="right">Basic</th><th>Status</th><th class="right">Actions</th>
         </tr></thead><tbody>
         ${rows.length? rows.map(e=>`
           <tr>
@@ -1259,9 +1259,9 @@ function pageEmployees(main){
       <hr class="divider">
       <div class="formgrid c4">
         <div><label>Division</label><select id="e_division">${DB.divisions.map(d=>`<option value="${d.id}" ${div===d.id?'selected':''}>${d.name}</option>`).join('') || '<option value="">— none —</option>'}</select></div>
-        <div><label>Area</label><select id="e_area"></select></div>
-        <div><label>Block</label><select id="e_block"></select></div>
-        <div><label>Analytic Account</label><select id="e_account"></select></div>
+        <div><label>Analytic Account</label><select id="e_area"></select></div>
+        <div><label>Region</label><select id="e_block"></select></div>
+        <div><label>Cost Center</label><select id="e_account"></select></div>
       </div>
       <hr class="divider">
       <div class="formgrid c2">
@@ -1686,7 +1686,7 @@ function pageTimesheet(main){
     if(f.employeeId && !emps.find(e=>e.id===f.employeeId)) f.employeeId='';
     const woDays = DB.settings.weekOffDays||[];
     main.innerHTML = `
-      <div class="pageheader no-print"><div><h2>Daily Timesheet</h2><div class="sub">Enter daily attendance per employee, drilled down by Division / Area / Block — 24-hour format</div></div>
+      <div class="pageheader no-print"><div><h2>Daily Timesheet</h2><div class="sub">Enter daily attendance per employee, drilled down by Division / Analytic Account / Region — 24-hour format</div></div>
         <button class="btn btn-outline" id="printAllBtn">🖨 Print</button>
       </div>
       <div class="card no-print">
@@ -1697,8 +1697,8 @@ function pageTimesheet(main){
           </select></div>
           <div class="fitem"><label>Search</label><input type="text" id="fSearch" placeholder="Name or code..." value="${f.search}"></div>
           <div class="fitem"><label>Division</label><select id="fD"><option value="">All</option>${DB.divisions.map(d=>`<option value="${d.id}" ${f.division===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div>
-          <div class="fitem"><label>Area</label><select id="fA"><option value="">All</option>${areasOf(f.division||null).map(a=>`<option value="${a.id}" ${f.area===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
-          <div class="fitem"><label>Block</label><select id="fB"><option value="">All</option>${blocksOf(f.area||null).map(b=>`<option value="${b.id}" ${f.block===b.id?'selected':''}>${b.name}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Analytic Account</label><select id="fA"><option value="">All</option>${areasOf(f.division||null).map(a=>`<option value="${a.id}" ${f.area===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Region</label><select id="fB"><option value="">All</option>${blocksOf(f.area||null).map(b=>`<option value="${b.id}" ${f.block===b.id?'selected':''}>${b.name}</option>`).join('')}</select></div>
           ${(f.view==='single' && !f.search) ? `<div class="fitem"><label>Employee</label><select id="fEmp"><option value="">— Select employee —</option>${emps.map(e=>`<option value="${e.id}" ${f.employeeId===e.id?'selected':''}>${e.code} - ${e.name}</option>`).join('')}</select></div>` : ''}
           <div class="fitem"><label>&nbsp;</label>
             <div style="display:flex;gap:4px;">
@@ -2405,8 +2405,8 @@ function pageHazardous(main){
           <div class="fitem"><label>Search</label><input type="text" id="hSearch" placeholder="Name or code..." value="${fSearch}"></div>
           ${isYearly ? `<div class="fitem"><label>Employee</label><select id="hEmp"><option value="">— Select employee —</option>${emps.map(e=>`<option value="${e.id}" ${empId===e.id?'selected':''}>${e.code} - ${e.name}</option>`).join('')}</select></div>` : ''}
           ${isYearly ? '' : `<div class="fitem"><label>Division</label><select id="hDiv"><option value="">All</option>${DB.divisions.map(d=>`<option value="${d.id}" ${fDiv===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div>
-          <div class="fitem"><label>Area</label><select id="hArea"><option value="">All</option>${areasOf(fDiv||null).map(a=>`<option value="${a.id}" ${fArea===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
-          <div class="fitem"><label>Block</label><select id="hBlock"><option value="">All</option>${blocksOf(fArea||null).map(b=>`<option value="${b.id}" ${fBlock===b.id?'selected':''}>${b.name}</option>`).join('')}</select></div>`}
+          <div class="fitem"><label>Analytic Account</label><select id="hArea"><option value="">All</option>${areasOf(fDiv||null).map(a=>`<option value="${a.id}" ${fArea===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Region</label><select id="hBlock"><option value="">All</option>${blocksOf(fArea||null).map(b=>`<option value="${b.id}" ${fBlock===b.id?'selected':''}>${b.name}</option>`).join('')}</select></div>`}
         </div>
         <p class="smallnote">Other Allowance Hrs auto-fills as that employee's Normal OT hours (from the Timesheet) ÷ 2 — <b>Laundry division only.</b> For every other division the field stays blank by default; type a value to set/override it manually for any employee. Other Allowance, Extra ANY and Extra O.T. hours are paid at Basic÷30÷8×1.25/hr. Extra Friday hours are paid at Basic÷30÷8×1.50/hr. <b>HAZARDOUS ALLOWANCE TOTAL = Other Allowance + Extra Friday + Extra ANY only.</b> The Extra O.T. amount is added to Special Allowance on the Timesheet instead, not to Hazardous. Remarks are a note only and don't affect the calculation.</p>
         <div class="tablewrap scrollbox"><table>
@@ -2731,8 +2731,8 @@ function pageSalary(main){
           ${colModeSelectorHTML('sColMode', colMode)}
           ${isYearly ? `<div class="fitem"><label>Employee</label><select id="sEmp"><option value="">— Select employee —</option>${emps.map(e=>`<option value="${e.id}" ${empId===e.id?'selected':''}>${e.code} - ${e.name}</option>`).join('')}</select></div>` : ''}
           ${isYearly ? '' : `<div class="fitem"><label>Division</label><select id="sDiv"><option value="">All</option>${DB.divisions.map(d=>`<option value="${d.id}" ${fDiv===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div>
-          <div class="fitem"><label>Area</label><select id="sArea"><option value="">All</option>${areasOf(fDiv||null).map(a=>`<option value="${a.id}" ${fArea===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
-          <div class="fitem"><label>Block</label><select id="sBlock"><option value="">All</option>${blocksOf(fArea||null).map(b=>`<option value="${b.id}" ${fBlock===b.id?'selected':''}>${b.name}</option>`).join('')}</select></div>`}
+          <div class="fitem"><label>Analytic Account</label><select id="sArea"><option value="">All</option>${areasOf(fDiv||null).map(a=>`<option value="${a.id}" ${fArea===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Region</label><select id="sBlock"><option value="">All</option>${blocksOf(fArea||null).map(b=>`<option value="${b.id}" ${fBlock===b.id?'selected':''}>${b.name}</option>`).join('')}</select></div>`}
         </div>
         <p class="smallnote">${monthLabel ? '' : ''}${isYearly?'':'Deduction is editable directly in the table below.'}</p>
         ${isYearly?'':statusBannerHTML(fDiv,fArea,fBlock,counts,viewMode,'sViewMode','sMarkAllReady')}
@@ -3036,8 +3036,8 @@ function pageWageCard(main){
           <div class="fitem"><label>Search</label><input type="text" id="wSearch" placeholder="Name or code..." value="${fSearch}"></div>
           ${(scope==='single') ? `<div class="fitem"><label>Employee</label><select id="wEmp"><option value="">— Select employee —</option>${emps.map(e=>`<option value="${e.id}" ${empId===e.id?'selected':''}>${e.code} - ${e.name}</option>`).join('')}</select></div>` : ''}
           ${isYearly ? '' : `<div class="fitem"><label>Division</label><select id="wDiv"><option value="">All</option>${DB.divisions.map(d=>`<option value="${d.id}" ${fDiv===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div>
-          <div class="fitem"><label>Area</label><select id="wArea"><option value="">All</option>${areasOf(fDiv||null).map(a=>`<option value="${a.id}" ${fArea===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
-          <div class="fitem"><label>Block</label><select id="wBlock"><option value="">All</option>${blocksOf(fArea||null).map(b=>`<option value="${b.id}" ${fBlock===b.id?'selected':''}>${b.name}</option>`).join('')}</select></div>`}
+          <div class="fitem"><label>Analytic Account</label><select id="wArea"><option value="">All</option>${areasOf(fDiv||null).map(a=>`<option value="${a.id}" ${fArea===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Region</label><select id="wBlock"><option value="">All</option>${blocksOf(fArea||null).map(b=>`<option value="${b.id}" ${fBlock===b.id?'selected':''}>${b.name}</option>`).join('')}</select></div>`}
         </div>
       </div>
       <div class="card">
@@ -3285,8 +3285,8 @@ function openWagePrintOptions(ctx){
     <div class="po-section">Scope — Who to print</div>
     <div class="formgrid c4">
       <div><label>Division</label><select id="poDiv"><option value="">All</option>${DB.divisions.map(d=>`<option value="${d.id}" ${st.div===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div>
-      <div><label>Area</label><select id="poArea"><option value="">All</option>${areasOf(st.div||null).map(a=>`<option value="${a.id}" ${st.area===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
-      <div><label>Block</label><select id="poBlock"><option value="">All</option>${blocksOf(st.area||null).map(b=>`<option value="${b.id}" ${st.block===b.id?'selected':''}>${b.name}</option>`).join('')}</select></div>
+      <div><label>Analytic Account</label><select id="poArea"><option value="">All</option>${areasOf(st.div||null).map(a=>`<option value="${a.id}" ${st.area===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
+      <div><label>Region</label><select id="poBlock"><option value="">All</option>${blocksOf(st.area||null).map(b=>`<option value="${b.id}" ${st.block===b.id?'selected':''}>${b.name}</option>`).join('')}</select></div>
       <div><label>Employee</label><select id="poEmp">${empOptions()}</select></div>
     </div>
 
@@ -3556,7 +3556,7 @@ function doWagePrint(o){
    Rules: existing entries are kept untouched; identical entries from the file are skipped;
    only NEW entries are added. Matching keys:
      - Divisions/Areas/Blocks: by name (case-insensitive) within their parent
-     - Analytic Accounts: by code (or by name within the block if no code)
+     - Cost Centers: by code (or by name within the block if no code)
      - Employees: by employee code (or by name if the code is empty)
      - Timesheets/Payroll/Hazardous sheet: per employee per month — added only if that
        employee has NO data for that month yet (existing months are never overwritten)
@@ -3659,7 +3659,7 @@ function historyRowsHTML(){
 
 /* ============================= COST CENTRE DETAILS =============================
    Read-only reporting page: for a chosen month, shows how many days of that employee's
-   (or every employee's) timesheet were charged to each Cost Center (Analytic Account).
+   (or every employee's) timesheet were charged to each Cost Center (Cost Center).
    Counts are driven purely by the per-day "Cost Center" field on the Daily Timesheet
    (defaults to the employee's assigned account, but can be overridden day-by-day there —
    e.g. a Laundry employee driving for 2 days gets those 2 days counted under LDRV instead
