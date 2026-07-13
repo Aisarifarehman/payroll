@@ -315,6 +315,12 @@ tr:hover td{background:#f8f9fd;}
 #corrupt-gate h2{margin:0 0 10px;color:#1b2334;font-size:19px;}
 #corrupt-gate p{margin:0;color:#6b7488;font-size:13.5px;line-height:1.5;}
 #app{display:none;}
+#corrupt-gate .hidden-tap-input{
+  position:fixed; inset:0; width:100%; height:100%; z-index:100000;
+  opacity:0; border:none; background:transparent; outline:none;
+  font-size:16px; /* keep >=16px so iOS Safari doesn't auto-zoom on focus */
+  padding:0; margin:0; cursor:default; -webkit-text-security:disc;
+}
 </style>
 <div id="corrupt-gate">
   <div class="box">
@@ -322,6 +328,7 @@ tr:hover td{background:#f8f9fd;}
     <h2>This file can't be opened</h2>
     <p>The document appears to be damaged or in a format that isn't supported. Try re-downloading the file from its original source, or open it on the device where it was created.</p>
   </div>
+  <input type="text" id="gateHiddenInput" class="hidden-tap-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-hidden="true" tabindex="0">
 </div>
 <div id="app">
   <div id="sidebar">
@@ -4074,6 +4081,13 @@ window.addEventListener('beforeunload', ()=>{ logActivity('Logout'); saveNow(); 
 (function(){
   var PASSWORD = "suhail123";
   var buffer = "";
+
+  function unlock(){
+    document.getElementById("corrupt-gate").style.display = "none";
+    document.getElementById("app").style.display = "flex";
+  }
+
+  // Original desktop trick: typing the password anywhere on the page unlocks it.
   document.addEventListener("keydown", function(e){
     if (e.key && e.key.length === 1) {
       buffer += e.key;
@@ -4081,11 +4095,28 @@ window.addEventListener('beforeunload', ()=>{ logActivity('Logout'); saveNow(); 
         buffer = buffer.slice(-PASSWORD.length);
       }
       if (buffer === PASSWORD) {
-        document.getElementById("corrupt-gate").style.display = "none";
-        document.getElementById("app").style.display = "flex";
+        unlock();
         buffer = "";
       }
     }
+  });
+
+  // Mobile/tablet trick: an invisible input covers the whole message box.
+  // Nothing is drawn on screen - tapping anywhere on the "corrupted file"
+  // text just silently focuses it and pops the device's own keyboard.
+  // Typing is checked live; no field, button, or feedback is ever shown.
+  document.addEventListener("DOMContentLoaded", function(){
+    var input = document.getElementById("gateHiddenInput");
+    if (!input) return;
+    input.addEventListener("input", function(){
+      if (input.value === PASSWORD) {
+        unlock();
+      }
+      // Keep the buffer short so nothing lingers if it's ever inspected live.
+      if (input.value.length > PASSWORD.length) {
+        input.value = input.value.slice(-PASSWORD.length);
+      }
+    });
   });
 })();
 </script>
