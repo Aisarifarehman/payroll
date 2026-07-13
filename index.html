@@ -3627,6 +3627,20 @@ function doWagePrint(o){
      - Timesheets/Payroll/Hazardous sheet: per employee per month — added only if that
        employee has NO data for that month yet (existing months are never overwritten)
    Internal ids from the file are remapped onto the ids used in this browser. */
+/* Merge a backup file into the CURRENT data.
+   Rules: NEW divisions/areas/blocks/accounts/employees are added.
+   Matching entries (by employee code, or by name/code within a parent for structure items) are
+   OVERWRITTEN by the imported data — this is intentional: importing a backup is expected to bring
+   this browser up to date with whatever is in the file, including replacing an employee's
+   division/area/block/Cost Center assignment, and replacing timesheet months, payroll snapshots,
+   and Hazardous Allowance sheet records for any month present in the file.
+   Matching keys:
+     - Divisions/Areas/Blocks: by name (case-insensitive) within their parent
+     - Cost Centers: by code (or by name within the block if no code)
+     - Employees: by employee code (or by name if the code is empty)
+   Internal ids from the file are remapped onto the ids used in this browser — including inside
+   each day's per-day Cost Center override in the Daily Timesheet, which previously kept the OLD
+   file's account id and rendered blank because that id didn't exist in this browser's data. */
 function mergeBackupData(parsed){
   const normKey = (s)=>String(s||'').trim().toLowerCase();
   // Forgiving match: exact match, OR one name contains the other (handles a division that was
@@ -3637,7 +3651,7 @@ function mergeBackupData(parsed){
     if(!x || !y) return false;
     return x===y || x.includes(y) || y.includes(x);
   };
-  const res = {divisions:0, areas:0, blocks:0, accounts:0, employees:0, skippedEmployees:0, timesheetMonths:0, payrollRecs:0, hazardousRecs:0};
+  const res = {divisions:0, areas:0, blocks:0, accounts:0, newEmployees:0, updatedEmployees:0, timesheetMonths:0, payrollRecs:0, hazardousRecs:0};
   const divMap={}, areaMap={}, blockMap={}, accMap={}, empMap={};
   (parsed.divisions||[]).forEach(d=>{
     const ex = DB.divisions.find(x=>namesMatch(x.name, d.name));
@@ -3664,36 +3678,52 @@ function mergeBackupData(parsed){
   });
   (parsed.employees||[]).forEach(emp=>{
     const ex = DB.employees.find(x=> (emp.code && normKey(x.code)===normKey(emp.code)) || (!emp.code && normKey(x.name)===normKey(emp.name)) );
-    if(ex){ empMap[emp.id]=ex.id; res.skippedEmployees++; return; } // same entry — keep the existing one, no need
-    const ne = Object.assign({}, emp, {
-      id: uid(),
+    const remapped = {
       divisionId: divMap[emp.divisionId]||emp.divisionId||'',
       areaId: areaMap[emp.areaId]||emp.areaId||'',
       blockId: blockMap[emp.blockId]||emp.blockId||'',
       accountId: accMap[emp.accountId]||emp.accountId||''
-    });
-    DB.employees.push(ne); empMap[emp.id]=ne.id; res.employees++;
+    };
+    if(ex){
+      // Overwrite the existing employee's fields with the imported ones (keep its existing id
+      // and transferHistory so cross-references from timesheets/payroll below still resolve).
+      Object.assign(ex, emp, remapped, {id: ex.id, transferHistory: ex.transferHistory||emp.transferHistory||[]});
+      empMap[emp.id]=ex.id; res.updatedEmployees++;
+    } else {
+      const ne = Object.assign({}, emp, {id: uid()}, remapped);
+      DB.employees.push(ne); empMap[emp.id]=ne.id; res.newEmployees++;
+    }
   });
+  // Remap a day-entries array's per-day Cost Center override from the backup file's account ids
+  // to the ids actually used in this browser (accMap) — without this, imported days keep an id
+  // that doesn't exist here and the Cost Center column renders blank.
+  function remapDayEntries(days){
+    return (days||[]).map(day=>{
+      if(day && day.accountId){
+        return Object.assign({}, day, {accountId: accMap[day.accountId] || day.accountId});
+      }
+      return day;
+    });
+  }
   Object.keys(parsed.timesheets||{}).forEach(oldEmpId=>{
     const newEmpId = empMap[oldEmpId]; if(!newEmpId) return;
     DB.timesheets[newEmpId] = DB.timesheets[newEmpId] || {};
     Object.keys(parsed.timesheets[oldEmpId]||{}).forEach(mk=>{
-      if(!DB.timesheets[newEmpId][mk]){ DB.timesheets[newEmpId][mk] = parsed.timesheets[oldEmpId][mk]; res.timesheetMonths++; }
+      DB.timesheets[newEmpId][mk] = remapDayEntries(parsed.timesheets[oldEmpId][mk]);
+      res.timesheetMonths++;
     });
   });
   Object.keys(parsed.timesheetTouched||{}).forEach(oldEmpId=>{
     const newEmpId = empMap[oldEmpId]; if(!newEmpId) return;
-    DB.timesheetTouched[newEmpId] = Object.assign({}, parsed.timesheetTouched[oldEmpId], DB.timesheetTouched[newEmpId]||{});
+    DB.timesheetTouched[newEmpId] = Object.assign({}, DB.timesheetTouched[newEmpId]||{}, parsed.timesheetTouched[oldEmpId]);
   });
   Object.keys(parsed.payroll||{}).forEach(mk=>{
     DB.payroll[mk] = DB.payroll[mk] || {};
     Object.keys(parsed.payroll[mk]||{}).forEach(oldEmpId=>{
       const newEmpId = empMap[oldEmpId]; if(!newEmpId) return;
-      if(!DB.payroll[mk][newEmpId]){
-        const rec = Object.assign({}, parsed.payroll[mk][oldEmpId]);
-        if(rec.empId) rec.empId = newEmpId;
-        DB.payroll[mk][newEmpId] = rec; res.payrollRecs++;
-      }
+      const rec = Object.assign({}, parsed.payroll[mk][oldEmpId]);
+      if(rec.empId) rec.empId = newEmpId;
+      DB.payroll[mk][newEmpId] = rec; res.payrollRecs++;
     });
   });
   Object.keys(parsed.hazardousSheet||{}).forEach(mk=>{
@@ -3701,7 +3731,7 @@ function mergeBackupData(parsed){
     DB.hazardousSheet[mk] = DB.hazardousSheet[mk] || {};
     Object.keys(parsed.hazardousSheet[mk]||{}).forEach(oldEmpId=>{
       const newEmpId = empMap[oldEmpId]; if(!newEmpId) return;
-      if(!DB.hazardousSheet[mk][newEmpId]){ DB.hazardousSheet[mk][newEmpId] = parsed.hazardousSheet[mk][oldEmpId]; res.hazardousRecs++; }
+      DB.hazardousSheet[mk][newEmpId] = parsed.hazardousSheet[mk][oldEmpId]; res.hazardousRecs++;
     });
   });
   return res;
@@ -4115,17 +4145,17 @@ function pageSettings(main){
         openModal(`
           <div class="modal-head"><h3>Import Backup</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
           <p style="color:var(--muted);font-size:13.5px;">How do you want to import <b>${file.name}</b>?</p>
-          <p style="font-size:13px;"><b>Merge (recommended):</b> keeps ALL your current data. Entries that already exist (same employee code / same division-area-block-account names / months already filled) are skipped, and only NEW employees, structure items, timesheet months and payroll records are added.</p>
+          <p style="font-size:13px;"><b>Merge (recommended):</b> keeps any employees/structure items that only exist locally. For anything that matches the file (same employee code, same division/area/block/Cost Center names, same timesheet month, same payroll snapshot), the imported version OVERWRITES what's currently here. New employees, structure items, timesheet months and payroll records are added.</p>
           <p style="font-size:13px;"><b>Replace everything:</b> deletes ALL current data and loads the file as-is. Only for full restore (e.g. moving to a new PC).</p>
           <div class="modal-actions">
             <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
             <button class="btn btn-danger" id="impReplaceBtn">Replace Everything</button>
-            <button class="btn btn-gold" id="impMergeBtn">Merge (Add New Only)</button>
+            <button class="btn btn-gold" id="impMergeBtn">Merge (Overwrite Matching)</button>
           </div>`);
         document.getElementById('impMergeBtn').onclick = ()=>{
           const r = mergeBackupData(parsed);
           saveNow(); closeModal(); renderPage();
-          toast(`Merged: +${r.employees} new employees (${r.skippedEmployees} already existed), +${r.divisions+r.areas+r.blocks+r.accounts} structure items, +${r.timesheetMonths} timesheet months, +${r.payrollRecs} payroll records`);
+          toast(`Merged: +${r.newEmployees} new employees (${r.updatedEmployees} updated), +${r.divisions+r.areas+r.blocks+r.accounts} new structure items, ${r.timesheetMonths} timesheet months imported, ${r.payrollRecs} payroll records imported`);
         };
         document.getElementById('impReplaceBtn').onclick = ()=>{
           closeModal();
