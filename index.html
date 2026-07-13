@@ -492,31 +492,7 @@ function mergeData(parsed){
   merged.settings.security    = Object.assign({enabled:false, staffLoginEnabled:false, adminEnabled:false, adminPasswordHash:'', staffList:[]}, ps.security||{});
   if(!Array.isArray(merged.activityLog)) merged.activityLog = [];
   if(!merged.readyStatus || typeof merged.readyStatus!=='object') merged.readyStatus = {};
-  sanitizeCrossDivisionCostCenters(merged);
   return merged;
-}
-/* Old builds let the browser silently default a day's Cost Center to the first account in the
-   global list (e.g. Laundry's L101/LDRV) for employees whose division has no analytic accounts.
-   Strip any stored per-day accountId (and employee accountId) that doesn't belong to the
-   employee's own division, so foreign Cost Centers stop appearing in Cost Centre Details. */
-function sanitizeCrossDivisionCostCenters(d){
-  try{
-    const accDiv = {}; // accountId -> divisionId
-    (d.accounts||[]).forEach(a=>{
-      const b=(d.blocks||[]).find(x=>x.id===a.blockId); if(!b) return;
-      const ar=(d.areas||[]).find(x=>x.id===b.areaId); if(!ar) return;
-      accDiv[a.id]=ar.divisionId;
-    });
-    (d.employees||[]).forEach(emp=>{
-      if(emp.accountId && accDiv[emp.accountId] && accDiv[emp.accountId]!==emp.divisionId) emp.accountId='';
-      const ts=(d.timesheets||{})[emp.id]; if(!ts) return;
-      Object.keys(ts).forEach(month=>{
-        (ts[month]||[]).forEach(r=>{
-          if(r && r.accountId && accDiv[r.accountId] && accDiv[r.accountId]!==emp.divisionId) r.accountId='';
-        });
-      });
-    });
-  }catch(e){ console.warn('sanitizeCrossDivisionCostCenters failed', e); }
 }
 function load(){
   try{
@@ -1834,9 +1810,9 @@ function pageTimesheet(main){
         <td><input class="tsi" type="number" step="0.5" min="0" max="10" data-emp="${uidTag}" data-idx="${idx}" data-f="normalOT" value="${r.normalOT}" style="width:55px;"></td>
         <td><input class="tsi" type="number" step="0.5" min="0" max="10" data-emp="${uidTag}" data-idx="${idx}" data-f="fridayOT" value="${r.fridayOT}" style="width:55px;"></td>
         <td><input class="tsi" type="number" step="0.5" min="0" max="10" data-emp="${uidTag}" data-idx="${idx}" data-f="phOT" value="${r.phOT}" style="width:55px;"></td>
-        <td><select class="tsi" data-emp="${uidTag}" data-idx="${idx}" data-f="accountId" style="width:120px;" title="Cost Center this day's work is charged to. Defaults to the employee's current Cost Center; change it for any day worked at a different site. Only Cost Centers of this employee's Division are listed.">
+        <td><select class="tsi" data-emp="${uidTag}" data-idx="${idx}" data-f="accountId" style="width:120px;" title="Cost Center this day's work is charged to, for this month's Cost Centre report only. Never changes the employee's profile. All Cost Centers from every Division are listed.">
           <option value="" ${!(r.accountId||emp.accountId)?'selected':''}>—</option>
-          ${accountsOfDivision(emp.divisionId).map(a=>`<option value="${a.id}" ${(r.accountId||emp.accountId)===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('')}
+          ${DB.accounts.map(a=>`<option value="${a.id}" ${(r.accountId||emp.accountId)===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('')}
         </select></td>
         <td class="right no-print"><button class="btn-icon del" data-clear="${idx}" data-emp="${uidTag}">✕</button></td>
       </tr>`;
@@ -1869,7 +1845,14 @@ function pageTimesheet(main){
         <div class="tablewrap"><table class="grid-table">
           <thead><tr>
             <th>Date</th><th>Remark</th><th>Time<br>In</th><th>Break Hours</th><th>Break Hours</th><th>Time<br>Out</th>
-            <th>Normal<br>OT Hrs</th><th>Sunday<br>OT Hrs</th><th>PH<br>OT Hrs</th><th>Cost Center</th><th class="no-print">Clear</th>
+            <th>Normal<br>OT Hrs</th><th>Sunday<br>OT Hrs</th><th>PH<br>OT Hrs</th>
+            <th>Cost Center<br>
+              <select class="ccBulkFill no-print" data-emp="${uidTag}" title="Fill ALL days of this month with one Cost Center (you can still change individual days after). Does NOT change the employee's profile." style="width:110px;font-weight:400;margin-top:2px;">
+                <option value="__ph__" selected>Fill all ▾</option>
+                <option value="__clear__">— (clear all)</option>
+                ${DB.accounts.map(a=>`<option value="${a.id}">${a.code}${a.name?' - '+a.name:''}</option>`).join('')}
+              </select>
+            </th><th class="no-print">Clear</th>
           </tr></thead>
           <tbody class="ts-body" data-emp="${uidTag}">${rowsHTML}</tbody>
           <tfoot><tr class="tfoot-total">
@@ -1979,6 +1962,22 @@ function pageTimesheet(main){
        attaching and dispatching thousands of individual listeners; Chromium hides the cost. */
     container.addEventListener('change', (e)=>{
       const t = e.target;
+      // Header "Fill all" Cost Center dropdown: writes the chosen account onto EVERY day of this
+      // month for this employee (per-day timesheet data only — the employee profile is untouched).
+      // Individual days can still be changed afterwards, e.g. one day to LDRV.
+      if(t.matches('select.ccBulkFill')){
+        const val = t.value;
+        t.value = '__ph__'; // snap the header select back to its placeholder
+        if(val==='__ph__') return;
+        const accId = (val==='__clear__') ? '' : val;
+        entries.forEach(en=>{ en.accountId = accId; });
+        bumpTimesheetVersion(entries);
+        markTouched(emp.id, month);
+        container.querySelectorAll('select[data-f="accountId"]').forEach(sel=>{ sel.value = accId; });
+        save();
+        toast(accId ? `All days of ${monthLabel(month)} set to ${accName(accId)} for ${emp.name}` : `Cost Center cleared on all days of ${monthLabel(month)} for ${emp.name}`);
+        return;
+      }
       if(!t.matches('select[data-f], input[data-f]')) return;
       const idx = t.dataset.idx; const field = t.dataset.f;
       let val = t.type==='number' ? (parseFloat(t.value)||0) : t.value;
@@ -3717,18 +3716,14 @@ function pageCostCentre(main){
           <div class="fitem"><label>Division</label><select id="ccDiv"><option value="">All</option>${DB.divisions.map(d=>`<option value="${d.id}" ${f.division===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div>
           <div class="fitem"><label>Employee (Code / Name)</label><input type="text" id="ccSearch" placeholder="Search code or name..." value="${esc(f.search)}"></div>
           <div class="fitem"><label>Employee</label><select id="ccEmp"><option value="">— All employees in scope —</option>${emps.map(e=>`<option value="${e.id}" ${f.employeeId===e.id?'selected':''}>${e.code} - ${e.name}</option>`).join('')}</select></div>
-          <div class="fitem"><label>Cost Center</label><select id="ccAcct"><option value="">All</option>${accountsOfDivision(f.division).map(a=>`<option value="${a.id}" ${f.accountId===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Cost Center</label><select id="ccAcct"><option value="">All</option>${DB.accounts.map(a=>`<option value="${a.id}" ${f.accountId===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('')}</select></div>
         </div>
         <p class="smallnote">${emps.length} employee(s) match current filters, for ${monthLabel(f.month)} (${daysInMonth(f.month)} days).</p>
       </div>
       <div id="ccResults"></div>
     `;
     wireMonthYearPicker('ccMonth', (newMonth)=>{ f.month=newMonth; renderResults(); });
-    document.getElementById('ccDiv').onchange=(e)=>{
-      f.division=e.target.value; f.employeeId='';
-      if(f.accountId && !accountsOfDivision(f.division).some(a=>a.id===f.accountId)) f.accountId='';
-      renderInner();
-    };
+    document.getElementById('ccDiv').onchange=(e)=>{f.division=e.target.value; f.employeeId=''; renderInner();};
     document.getElementById('ccSearch').oninput=(e)=>{
       f.search=e.target.value; f.employeeId=''; renderInner();
       const el = document.getElementById('ccSearch'); el.focus(); el.setSelectionRange(f.search.length, f.search.length);
