@@ -281,7 +281,37 @@ tr:hover td{background:#f8f9fd;}
   /* Dedicated Wage Card print document (built by the Print Options dialog) */
   body.wc-printing #app{display:none!important;}
   body.wc-printing #wcPrintArea{display:block!important;}
+  /* Dedicated Daily Timesheet print document — one employee per page, guaranteed to fit */
+  body.ts-printing #app{display:none!important;}
+  body.ts-printing #tsPrintArea{display:block!important;}
 }
+/* Daily Timesheet print area — hidden on screen, rendered only while printing.
+   The day grid is split into two side-by-side halves (e.g. days 1-15 / 16-30) instead of one
+   tall list, and everything uses compact static text (no input/select boxes) instead of the
+   editable on-screen widgets — that combination is what keeps one employee's full month +
+   wage summary to a single A4 page instead of spilling onto a second sheet or overflowing the
+   page width. */
+#tsPrintArea{display:none;background:#fff;color:#000;font-family:'Segoe UI',Arial,sans-serif;}
+#tsPrintArea .ts-page{page-break-after:always;padding:8mm;}
+#tsPrintArea .ts-page:last-child{page-break-after:auto;}
+#tsPrintArea .ts-p-head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #16264c;padding-bottom:5px;margin-bottom:6px;}
+#tsPrintArea .ts-p-co{font-size:14px;font-weight:700;color:#16264c;}
+#tsPrintArea .ts-p-title{font-size:11.5px;font-weight:700;color:#20335f;letter-spacing:.3px;}
+#tsPrintArea .ts-p-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:2px 16px;font-size:9.5px;margin-bottom:7px;background:#f6f8fc;padding:5px 8px;border-radius:5px;border:1px solid #ccc;}
+#tsPrintArea .ts-p-cols{display:flex;gap:6mm;margin-bottom:7px;}
+#tsPrintArea .ts-p-cols>div{flex:1;min-width:0;}
+#tsPrintArea table{width:100%;border-collapse:collapse;font-size:8px;table-layout:fixed;}
+#tsPrintArea thead{display:table-header-group;}
+#tsPrintArea tbody tr{page-break-inside:avoid;}
+#tsPrintArea th,#tsPrintArea td{border:1px solid #666;padding:1.5px 2.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#tsPrintArea th{background:#eef1f8!important;color:#16264c;font-size:7.6px;text-align:center;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+#tsPrintArea .right{text-align:right;}
+#tsPrintArea .ts-p-wo{background:#fde8e8!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+#tsPrintArea .ts-p-summary{margin-top:2px;max-width:62%;}
+#tsPrintArea .ts-p-summary table{font-size:9px;}
+#tsPrintArea .ts-p-summary td:first-child{white-space:normal;}
+#tsPrintArea tfoot td{font-weight:700;background:#f4f6fb!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+#tsPrintArea .ts-p-note{font-size:8.5px;font-style:italic;color:#333;margin-top:6px;}
 /* Wage Card print area — hidden on screen, rendered only while printing via Print Options */
 #wcPrintArea{display:none;background:#fff;color:#000;font-family:'Segoe UI',Arial,sans-serif;}
 #wcPrintArea .wc-page{page-break-after:always;padding:8mm;}
@@ -347,6 +377,7 @@ tr:hover td{background:#f8f9fd;}
   <div id="main"></div>
 </div>
 <div id="wcPrintArea"></div>
+<div id="tsPrintArea"></div>
 <div class="overlay" id="overlay"><div class="modal" id="modalBox"></div></div>
 <div class="toast" id="toast"></div>
 
@@ -1870,7 +1901,7 @@ function pageTimesheet(main){
       </div>
       <div id="tsGrid"></div>
     `;
-    document.getElementById('printAllBtn').onclick = ()=>window.print();
+    document.getElementById('printAllBtn').onclick = ()=>doTimesheetPrint();
     document.getElementById('fView').onchange=(e)=>{f.view=e.target.value; renderInner();};
     document.getElementById('fSearch').oninput=(e)=>{
       f.search=e.target.value; renderInner();
@@ -2024,6 +2055,99 @@ function pageTimesheet(main){
         <p class="smallnote" style="font-style:italic;margin-top:10px;">*** This timesheet was shown to the employee. The Supervisor, Area Supervisor, and Area Manager will sign to confirm.</p>
       </div>
     `;
+  }
+
+  /* Builds a compact, print-only version of the Daily Timesheet into #tsPrintArea and opens the
+     print dialog — one employee per page, guaranteed to fit. Unlike the on-screen sheet (which
+     uses editable <input>/<select> boxes sized generously for typing), this renders plain static
+     text in a tight two-column day layout, which is both what actually fits one A4 page and what
+     fixes the page-width overflow from the wide editable boxes. Prints whichever employee(s) are
+     currently in view — the single selected employee, or the full filtered list when in
+     "All Employees in Scope" view / a search is active — same scope logic as the on-screen grid. */
+  function doTimesheetPrint(){
+    const emps = (f.view==='single' && !f.search) ? (f.employeeId ? [byId(DB.employees, f.employeeId)] : []) : empList();
+    if(!emps.length || !emps[0]){ toast('Select an employee (or a matching filter) to print first'); return; }
+    const month = f.month;
+
+    function summaryRowsPrintHTML(sal, emp){
+      const sec = isSecurityEmp(emp);
+      const accLabel  = sec ? 'Accommodation Deduction' : 'Accommodation Allowance';
+      const foodLabel = sec ? 'Food Deduction' : 'Food Allowance';
+      const laundryRow = sec ? `<tr><td>Laundry Deduction</td><td class="right">—</td><td class="right">${dashDed(sal.allowances?.laundry||0)}</td></tr>` : '';
+      return `
+        <tr><td>Absent / Leave Days</td><td class="right">${dashN(sal.nonWorkedDays)}</td><td class="right">—</td></tr>
+        <tr><td>Basic Salary (net of Absent/Leave)</td><td class="right">${fmt(sal.rawBasicSalary)}</td><td class="right">${fmt(sal.basicSalary)}</td></tr>
+        <tr><td>Normal Overtime Hours</td><td class="right">${dashN(sal.normalOT)}</td><td class="right">${fmt(sal.normalOTAmt)}</td></tr>
+        <tr><td>Sunday OT Hours</td><td class="right">${dashN(sal.fridayOT)}</td><td class="right">${fmt(sal.fridayOTAmt)}</td></tr>
+        <tr><td>Public Holiday OT Hours</td><td class="right">${dashN(sal.phOT)}</td><td class="right">${fmt(sal.phOTAmt)}</td></tr>
+        <tr><td>Special Allowance</td><td class="right">—</td><td class="right">${fmt(sal.allowances?.special||0)}</td></tr>
+        <tr><td>Fix Allowance</td><td class="right">${dash(sal.rawAllowances.performance)}</td><td class="right">${fmt(sal.allowances?.performance||0)}</td></tr>
+        <tr><td>Performance Allowance</td><td class="right">${dash(sal.rawAllowances.performanceAllow)}</td><td class="right">${fmt(sal.allowances?.performanceAllow||0)}</td></tr>
+        <tr><td>${accLabel}</td><td class="right">${sec?dashDed(sal.rawAllowances.accommodation):dash(sal.rawAllowances.accommodation)}</td><td class="right">${sec?dashDed(sal.allowances?.accommodation||0):fmt(sal.allowances?.accommodation||0)}</td></tr>
+        <tr><td>${foodLabel}</td><td class="right">${sec?dashDed(sal.rawAllowances.food):dash(sal.rawAllowances.food)}</td><td class="right">${sec?dashDed(sal.allowances?.food||0):fmt(sal.allowances?.food||0)}</td></tr>${laundryRow}
+        <tr><td>Transport Allowance</td><td class="right">${dash(sal.rawAllowances.transport)}</td><td class="right">${fmt(sal.allowances?.transport||0)}</td></tr>
+        <tr><td>Ramadan Allowance</td><td class="right">${dash(sal.rawAllowances.ramadan)}</td><td class="right">${fmt(sal.allowances?.ramadan||0)}</td></tr>
+        <tr><td>Hazardous Allowance</td><td class="right">—</td><td class="right">${fmt(sal.allowances?.hazardous||0)}</td></tr>
+        <tr class="tfoot-total"><td colspan="2">Total Wages</td><td class="right">${fmt(sal.totalSalary)}</td></tr>`;
+    }
+
+    function dayRowHTML(r, emp){
+      const isWO = isWeekOffDate(r.date);
+      const rm = (r.remark||'').toUpperCase();
+      const cc = r.accountId||emp.accountId;
+      const accObj = cc ? byId(DB.accounts, cc) : null;
+      return `<tr class="${isWO||rm?'ts-p-wo':''}">
+        <td>${dateDisplay(r.date)}</td>
+        <td>${rm||'—'}</td>
+        <td>${r.timeIn||'—'}</td>
+        <td>${r.break1||'—'}</td>
+        <td>${r.break2||'—'}</td>
+        <td>${r.timeOut||'—'}</td>
+        <td class="right">${r.normalOT||0}</td>
+        <td class="right">${r.fridayOT||0}</td>
+        <td class="right">${r.phOT||0}</td>
+        <td>${accObj?accObj.code:'—'}</td>
+      </tr>`;
+    }
+    const dayHead = `<tr><th>Date</th><th>Remark</th><th>In</th><th>Break</th><th>Break</th><th>Out</th><th>N.OT</th><th>S.OT</th><th>PH.OT</th><th>C.Ctr</th></tr>`;
+
+    const pages = emps.map(emp=>{
+      const entries = getEntries(emp.id, month);
+      const stats = calcAttendanceStats(entries);
+      const sal = computeSalaryWithEntries(emp, entries, stats, getPayrollOverride(emp.id, month), month);
+      const half = Math.ceil(entries.length/2);
+      const leftRows = entries.slice(0, half).map(r=>dayRowHTML(r, emp)).join('');
+      const rightRows = entries.slice(half).map(r=>dayRowHTML(r, emp)).join('');
+      return `
+        <div class="ts-page">
+          <div class="ts-p-head">
+            <div style="display:flex;align-items:center;gap:8px;">${logoImg(28)}<div><div class="ts-p-co">${docHeading()}</div><div class="ts-p-title">DAILY ATTENDANCE RECORD</div></div></div>
+          </div>
+          <div class="ts-p-meta">
+            <div><b>For the Month Of:</b> ${monthLabel(month)}</div>
+            <div><b>Division:</b> ${divName(emp.divisionId)}</div>
+            <div><b>Cost Center:</b> ${accName(emp.accountId)}</div>
+            <div><b>Name:</b> ${emp.name}</div>
+            <div><b>Code:</b> ${emp.code}</div>
+            <div><b>Region:</b> ${blockName(emp.blockId)}</div>
+          </div>
+          <div class="ts-p-cols">
+            <div><table><thead>${dayHead}</thead><tbody>${leftRows}</tbody></table></div>
+            <div><table><thead>${dayHead}</thead><tbody>${rightRows}</tbody></table></div>
+          </div>
+          <div style="font-size:8.5px;margin-bottom:6px;">TOTAL — Absent: ${stats.absentDays} | Leave: ${stats.leaveDays} | Medical: ${stats.medicalDays||0} | Week Off: ${stats.weekOffs} | Public Holiday: ${stats.holidayDays} &nbsp;|&nbsp; Normal OT: ${stats.totalNormal} | Sunday OT: ${stats.totalFriday} | PH OT: ${stats.totalPh}</div>
+          <div class="ts-p-summary"><table><thead><tr><th>Description</th><th>Hours</th><th>Amount (${DB.settings.currency})</th></tr></thead>
+            <tbody>${summaryRowsPrintHTML(sal, emp)}</tbody></table></div>
+          <p class="ts-p-note">*** This timesheet was shown to the employee. The Supervisor, Area Supervisor, and Area Manager will sign to confirm.</p>
+        </div>`;
+    }).join('');
+
+    const area = document.getElementById('tsPrintArea');
+    area.innerHTML = pages;
+    document.body.classList.add('ts-printing');
+    const cleanup = ()=>{ document.body.classList.remove('ts-printing'); area.innerHTML=''; };
+    window.addEventListener('afterprint', cleanup, {once:true});
+    setTimeout(()=>{ window.print(); setTimeout(cleanup, 1000); }, 120);
   }
 
   function summaryRowsHTML(sal, uidTag, emp){
