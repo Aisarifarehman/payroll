@@ -397,27 +397,75 @@ try{
   }
 }catch(e){ console.error('Supabase init failed', e); }
 
+/* CONCURRENCY SAFETY: the whole DB is one JSON blob in one row, and two people (two PCs/tabs)
+   can be active at once. Without a check, whoever's save() fires LAST always wins — even if
+   their in-memory DB is older than what's already on the server, silently erasing the other
+   person's more recent work (e.g. an import). lastKnownRemoteUpdatedAt records the exact
+   updated_at string this browser last saw from the server (from a fetch, a realtime push, or
+   our own successful write). Every write after the first is CONDITIONAL on that value still
+   being current on the server — if someone else wrote in between, the condition matches zero
+   rows, nothing is overwritten, and we pull their fresh data instead. */
+let lastKnownRemoteUpdatedAt = null;
+
 async function fetchRemoteDB(){
   if(!sb) return null;
-  const {data, error} = await sb.from('app_state').select('data').eq('id', ROW_ID).maybeSingle();
+  const {data, error} = await sb.from('app_state').select('data, updated_at').eq('id', ROW_ID).maybeSingle();
   if(error) throw error;
+  if(data) lastKnownRemoteUpdatedAt = data.updated_at;
   return data ? data.data : null;
 }
 async function pushRemoteDB(dbObj){
   if(!sb) return;
   try{
-    const {error} = await sb.from('app_state').upsert({
-      id: ROW_ID, data: dbObj, updated_at: new Date().toISOString(), updated_by: CLIENT_ID
-    });
-    if(error) console.error('Remote save failed', error);
+    let rows, error;
+    if(lastKnownRemoteUpdatedAt){
+      // We know a prior server state: only write if nobody else has written since. The .eq()
+      // guard makes this a true compare-and-swap — Postgres evaluates it against the row's
+      // CURRENT state before applying our update, so a concurrent writer can't sneak in between
+      // our check and our write.
+      ({data: rows, error} = await sb.from('app_state')
+        .update({data: dbObj, updated_at: new Date().toISOString(), updated_by: CLIENT_ID})
+        .eq('id', ROW_ID).eq('updated_at', lastKnownRemoteUpdatedAt)
+        .select('updated_at'));
+    } else {
+      // First write this session (e.g. brand-new row, or we haven't fetched yet) — safe to upsert.
+      ({data: rows, error} = await sb.from('app_state')
+        .upsert({id: ROW_ID, data: dbObj, updated_at: new Date().toISOString(), updated_by: CLIENT_ID})
+        .select('updated_at'));
+    }
+    if(error){ console.error('Remote save failed', error); return; }
+    if(rows && rows.length){
+      // Store the server's own returned timestamp string (not our locally computed one) so the
+      // next comparison is always byte-for-byte what Postgres actually has, avoiding any
+      // ISO-string formatting/precision mismatch between client and server.
+      lastKnownRemoteUpdatedAt = rows[0].updated_at;
+    } else if(lastKnownRemoteUpdatedAt) {
+      // 0 rows matched: someone else saved in between. Our write was correctly rejected instead
+      // of silently clobbering their newer data. Pull their version and tell the user to redo
+      // whatever they just changed, rather than lose it silently.
+      await pullRemoteAfterConflict();
+    }
   }catch(err){ console.error('Remote save failed', err); }
+}
+async function pullRemoteAfterConflict(){
+  try{
+    const remote = await fetchRemoteDB(); // also refreshes lastKnownRemoteUpdatedAt
+    if(remote){
+      DB = mergeData(remote);
+      try{ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }catch(e){}
+      renderNav(); renderPage();
+    }
+  }catch(e){ console.error('Conflict pull failed', e); }
+  toast('Someone else saved changes at the same moment — this screen was refreshed with the latest data. Please redo your last change.');
 }
 function subscribeRealtime(){
   if(!sb) return;
   sb.channel('app_state_changes')
     .on('postgres_changes', {event:'UPDATE', schema:'public', table:'app_state', filter:`id=eq.${ROW_ID}`}, (payload)=>{
       const row = payload.new;
-      if(!row || row.updated_by === CLIENT_ID) return; // ignore echoes of our own writes
+      if(!row) return;
+      lastKnownRemoteUpdatedAt = row.updated_at; // stay current even for our own echoed writes
+      if(row.updated_by === CLIENT_ID) return; // ignore echoes of our own writes
       DB = mergeData(row.data || {});
       try{ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }catch(e){}
       renderNav(); renderPage();
