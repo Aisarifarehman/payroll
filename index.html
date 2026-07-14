@@ -73,6 +73,20 @@ body{margin:0;font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color
 }
 .navbtn.active .navarrow{background:linear-gradient(160deg,var(--gold-l),var(--gold));}
 .sidebar-footer{margin-top:auto;padding:14px 18px;font-size:10.5px;color:#8ea0c6;border-top:1px solid rgba(255,255,255,0.1);}
+/* Big green "3D bulge" Refresh button — force-pulls the latest cloud data on demand. Raised look
+   via a solid bottom shadow (like a real button edge); pressing it flattens/drops it down. */
+#refreshBtnBox{padding:0 12px 10px;}
+#refreshAllBtn{
+  width:100%;display:block;
+  background:linear-gradient(180deg,#5cd65c,#2e9e3f);
+  color:#fff;font-weight:800;font-size:14px;letter-spacing:.6px;text-transform:uppercase;
+  border:none;border-radius:12px;padding:13px;cursor:pointer;
+  box-shadow:0 5px 0 #1d7a2c, 0 8px 14px rgba(0,0,0,0.35);
+  transition:transform .08s ease, box-shadow .08s ease, filter .12s ease;
+}
+#refreshAllBtn:hover{filter:brightness(1.07);}
+#refreshAllBtn:active{transform:translateY(4px);box-shadow:0 1px 0 #1d7a2c, 0 2px 5px rgba(0,0,0,0.3);}
+#refreshAllBtn:disabled{opacity:0.75;cursor:wait;}
 
 /* MAIN */
 #main{flex:1;padding:26px 30px;overflow-x:auto;}
@@ -374,6 +388,9 @@ tr:hover td{background:#f8f9fd;}
       <h1>⚙ Payroll System</h1>
       <div class="brand-sub">Offline Attendance &amp; Salary System</div>
     </div>
+    <div id="refreshBtnBox">
+      <button id="refreshAllBtn" title="Force-reload the latest data from the cloud right now — use this if changes made on another PC aren't showing up here yet">🔄 REFRESH</button>
+    </div>
     <div class="navgroup" id="navgroup"></div>
     <div class="sidebar-footer">Data stored locally in this browser.<br>Prepared by Suhail Ahmed</div>
   </div>
@@ -491,6 +508,30 @@ async function pullRemoteAfterConflict(){
     }
   }catch(e){ console.error('Conflict pull failed', e); }
   toast('Someone else saved changes at the same moment — this screen was refreshed with the latest data. Please redo your last change.');
+}
+/* Manual "REFRESH" button in the sidebar — force-pulls the latest cloud data right now, on
+   demand, instead of waiting on the realtime channel or a page reload. Any unsaved edits on THIS
+   screen are overwritten by the cloud version, same as the conflict-guard behavior, so the button
+   always shows current data from Supabase, not a stale local copy. */
+async function manualRefresh(){
+  const btn = document.getElementById('refreshAllBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ REFRESHING...'; }
+  try{
+    const remote = await fetchRemoteDB(); // also refreshes lastKnownRemoteUpdatedAt
+    if(remote){
+      DB = mergeData(remote);
+      try{ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }catch(e){}
+      renderNav(); renderPage();
+      toast('Refreshed — showing the latest data from the cloud');
+    } else {
+      toast('No cloud data found yet for this app');
+    }
+  }catch(err){
+    console.error('Manual refresh failed', err);
+    toast('Refresh failed — check your internet connection and try again');
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = '🔄 REFRESH'; }
+  }
 }
 function subscribeRealtime(){
   if(!sb) return;
@@ -1267,7 +1308,7 @@ function pageContractSites(main){
         <div class="filters">
           <div class="fitem"><label>Search</label><input id="csSearch" placeholder="Contract ref, site, or employee..." value="${f.search}"></div>
           <div class="fitem"><label>Division</label><select id="csFDiv"><option value="">All</option>${DB.divisions.map(d=>`<option value="${d.id}" ${f.division===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div>
-          <div class="fitem"><label>Cost Center</label><select id="csFAcc"><option value="">All</option>${accountsOfDivision(f.division||null).map(a=>`<option value="${a.id}" ${f.account===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Cost Center</label><select id="csFAcc"><option value="">All</option>${DB.accounts.map(a=>`<option value="${a.id}" ${f.account===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('')}</select></div>
           <div class="fitem"><label>Analytic Account</label><select id="csFSub"><option value="">All</option>${subAccountsOf(f.account||null).map(s=>`<option value="${s.id}" ${f.subaccount===s.id?'selected':''}>${s.code?s.code+' - ':''}${s.name}</option>`).join('')}</select></div>
         </div>
         <div class="tablewrap"><table><thead><tr>
@@ -1309,7 +1350,12 @@ function pageContractSites(main){
   function openCsForm(id){
     const editing = id ? byId(DB.contractSites, id) : null;
     const div = editing ? editing.divisionId : (DB.divisions[0]?.id||'');
-    const accList = accountsOfDivision(div);
+    // Cost Center intentionally lists ALL cost centers, not filtered by Division — a Division's
+    // Cost Center is reached through Division→Area→Region→Cost Center, and if that chain is
+    // incomplete/inconsistent anywhere in real data, a division-filtered list can render blank
+    // even though Cost Centers exist. Same reasoning the Daily Timesheet's per-day Cost Center
+    // override already uses ("All Cost Centers from every Division are listed").
+    const accList = DB.accounts;
     const acc = editing ? editing.accountId : (accList[0]?.id||'');
     const subList = subAccountsOf(acc);
     const sub = editing ? editing.analyticAccountId : (subList[0]?.id||'');
@@ -1325,7 +1371,7 @@ function pageContractSites(main){
       <div class="formgrid c4">
         <div><label>Division</label><select id="cs_div">${DB.divisions.map(d=>`<option value="${d.id}" ${div===d.id?'selected':''}>${d.name}</option>`).join('') || '<option value="">— none —</option>'}</select>
           <a href="#" class="qc-link" data-qc="divisions" data-qc-label="Division" style="display:inline-block;margin-top:4px;font-size:11.5px;color:var(--gold);text-decoration:none;">+ New Division</a></div>
-        <div><label>Cost Center</label><select id="cs_acc"></select>
+        <div><label>Cost Center</label><select id="cs_acc">${accList.map(a=>`<option value="${a.id}" ${acc===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('') || '<option value="">— none —</option>'}</select>
           <a href="#" class="qc-link" data-qc="accounts" data-qc-label="Cost Center" style="display:inline-block;margin-top:4px;font-size:11.5px;color:var(--gold);text-decoration:none;">+ New Cost Center</a></div>
         <div><label>Analytic Account</label><select id="cs_sub"></select>
           <a href="#" class="qc-link" data-qc="subaccounts" data-qc-label="Analytic Account" style="display:inline-block;margin-top:4px;font-size:11.5px;color:var(--gold);text-decoration:none;">+ New Analytic Account</a></div>
@@ -1336,17 +1382,11 @@ function pageContractSites(main){
         <button class="btn btn-gold" id="saveCsBtn">Save</button>
       </div>
     `);
-    function refreshAcc(selDiv, selAcc){
-      const list = accountsOfDivision(selDiv);
-      document.getElementById('cs_acc').innerHTML = list.map(a=>`<option value="${a.id}" ${selAcc===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('') || '<option value="">— none —</option>';
-      refreshSub(selAcc || (list[0]?.id||''), editing?editing.analyticAccountId:null);
-    }
     function refreshSub(selAcc, selSub){
       const list = subAccountsOf(selAcc);
       document.getElementById('cs_sub').innerHTML = list.map(s=>`<option value="${s.id}" ${selSub===s.id?'selected':''}>${s.code?s.code+' - ':''}${s.name}</option>`).join('') || '<option value="">— none —</option>';
     }
-    refreshAcc(div, acc);
-    document.getElementById('cs_div').onchange = (e)=>refreshAcc(e.target.value,'');
+    refreshSub(acc, sub);
     document.getElementById('cs_acc').onchange = (e)=>refreshSub(e.target.value,'');
 
     function collectCsFormData(){
@@ -2268,7 +2308,7 @@ function pageTimesheet(main){
       const foodLabel = sec ? 'Food Deduction' : 'Food Allowance';
       const rows = [
         `<tr><td>Absent / Leave Days</td><td class="right">${dashN(sal.nonWorkedDays)}</td><td class="right">—</td></tr>`,
-        `<tr><td>Basic Salary (net of Absent/Leave)</td><td class="right">${fmt(sal.rawBasicSalary)}</td><td class="right">${fmt(sal.basicSalary)}</td></tr>`,
+        `<tr><td>Basic Salary</td><td class="right">${fmt(sal.rawBasicSalary)}</td><td class="right">${fmt(sal.basicSalary)}</td></tr>`,
         `<tr><td>Normal Overtime Hours</td><td class="right">${dashN(sal.normalOT)}</td><td class="right">${fmt(sal.normalOTAmt)}</td></tr>`,
         `<tr><td>Sunday OT Hours</td><td class="right">${dashN(sal.fridayOT)}</td><td class="right">${fmt(sal.fridayOTAmt)}</td></tr>`,
         `<tr><td>Public Holiday OT Hours</td><td class="right">${dashN(sal.phOT)}</td><td class="right">${fmt(sal.phOTAmt)}</td></tr>`,
@@ -4644,6 +4684,8 @@ window.addEventListener('beforeunload', ()=>{ logActivity('Logout'); saveNow(); 
   renderNav();
   renderPage();
   subscribeRealtime();
+  const refreshBtn = document.getElementById('refreshAllBtn');
+  if(refreshBtn) refreshBtn.onclick = manualRefresh;
 })();
 </script>
 <script>
