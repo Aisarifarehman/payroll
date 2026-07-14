@@ -3692,25 +3692,25 @@ function mergeBackupData(parsed){
   const divMap={}, areaMap={}, blockMap={}, accMap={}, subAccMap={}, empMap={};
   (parsed.divisions||[]).forEach(d=>{
     const ex = DB.divisions.find(x=>namesMatch(x.name, d.name));
-    if(ex){ divMap[d.id]=ex.id; }
+    if(ex){ divMap[d.id]=ex.id; if(d.name) ex.name = d.name; } // imported name wins (e.g. seed "Laundry Division" -> your renamed "Laundry")
     else { const nd={id:uid(), name:d.name||''}; DB.divisions.push(nd); divMap[d.id]=nd.id; res.divisions++; }
   });
   (parsed.areas||[]).forEach(a=>{
     const divId = divMap[a.divisionId]||a.divisionId||'';
     const ex = DB.areas.find(x=>x.divisionId===divId && namesMatch(x.name, a.name));
-    if(ex){ areaMap[a.id]=ex.id; }
+    if(ex){ areaMap[a.id]=ex.id; if(a.name) ex.name = a.name; }
     else { const na={id:uid(), divisionId:divId, name:a.name||''}; DB.areas.push(na); areaMap[a.id]=na.id; res.areas++; }
   });
   (parsed.blocks||[]).forEach(b=>{
     const areaId = areaMap[b.areaId]||b.areaId||'';
     const ex = DB.blocks.find(x=>x.areaId===areaId && namesMatch(x.name, b.name));
-    if(ex){ blockMap[b.id]=ex.id; }
+    if(ex){ blockMap[b.id]=ex.id; if(b.name) ex.name = b.name; }
     else { const nb={id:uid(), areaId:areaId, name:b.name||''}; DB.blocks.push(nb); blockMap[b.id]=nb.id; res.blocks++; }
   });
   (parsed.accounts||[]).forEach(c=>{
     const blockId = blockMap[c.blockId]||c.blockId||'';
     const ex = DB.accounts.find(x=> (c.code && normKey(x.code)===normKey(c.code)) || (x.blockId===blockId && namesMatch(x.name, c.name)) );
-    if(ex){ accMap[c.id]=ex.id; }
+    if(ex){ accMap[c.id]=ex.id; if(c.code) ex.code = c.code; if(c.name!==undefined) ex.name = c.name; }
     else { const nc={id:uid(), blockId:blockId, code:c.code||'', name:c.name||''}; DB.accounts.push(nc); accMap[c.id]=nc.id; res.accounts++; }
   });
   // Analytic Accounts are a sub-level under a Cost Center — matched/remapped the same way Cost
@@ -3718,7 +3718,7 @@ function mergeBackupData(parsed){
   (parsed.analyticAccounts||[]).forEach(s=>{
     const accountId = accMap[s.accountId]||s.accountId||'';
     const ex = DB.analyticAccounts.find(x=> (s.code && normKey(x.code)===normKey(s.code)) || (x.accountId===accountId && namesMatch(x.name, s.name)) );
-    if(ex){ subAccMap[s.id]=ex.id; }
+    if(ex){ subAccMap[s.id]=ex.id; if(s.code) ex.code = s.code; if(s.name!==undefined) ex.name = s.name; }
     else { const ns={id:uid(), accountId:accountId, code:s.code||'', name:s.name||''}; DB.analyticAccounts.push(ns); subAccMap[s.id]=ns.id; res.subaccounts++; }
   });
   (parsed.employees||[]).forEach(emp=>{
