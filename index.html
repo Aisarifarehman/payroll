@@ -298,8 +298,8 @@ tr:hover td{background:#f8f9fd;}
 #tsPrintArea .ts-p-co{font-size:14px;font-weight:700;color:#16264c;}
 #tsPrintArea .ts-p-title{font-size:11.5px;font-weight:700;color:#20335f;letter-spacing:.3px;}
 #tsPrintArea .ts-p-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:2px 16px;font-size:9.5px;margin-bottom:7px;background:#f6f8fc;padding:5px 8px;border-radius:5px;border:1px solid #ccc;}
-#tsPrintArea .ts-p-cols{display:flex;gap:6mm;margin-bottom:7px;}
-#tsPrintArea .ts-p-cols>div{flex:1;min-width:0;}
+#tsPrintArea .ts-p-days{margin-bottom:7px;}
+#tsPrintArea .ts-p-days table{font-size:9px;}
 #tsPrintArea table{width:100%;border-collapse:collapse;font-size:8px;table-layout:fixed;}
 #tsPrintArea thead{display:table-header-group;}
 #tsPrintArea tbody tr{page-break-inside:avoid;}
@@ -307,7 +307,10 @@ tr:hover td{background:#f8f9fd;}
 #tsPrintArea th{background:#eef1f8!important;color:#16264c;font-size:7.6px;text-align:center;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
 #tsPrintArea .right{text-align:right;}
 #tsPrintArea .ts-p-wo{background:#fde8e8!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-#tsPrintArea .ts-p-summary{margin-top:2px;max-width:62%;}
+/* Calculation/summary table is split into two side-by-side halves (not one long list) so it
+   takes half the vertical space, and spans the FULL page width like the day grid above it. */
+#tsPrintArea .ts-p-summary{display:flex;gap:6mm;margin-top:2px;}
+#tsPrintArea .ts-p-summary>div{flex:1;min-width:0;}
 #tsPrintArea .ts-p-summary table{font-size:9px;}
 #tsPrintArea .ts-p-summary td:first-child{white-space:normal;}
 #tsPrintArea tfoot td{font-weight:700;background:#f4f6fb!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
@@ -2069,26 +2072,30 @@ function pageTimesheet(main){
     if(!emps.length || !emps[0]){ toast('Select an employee (or a matching filter) to print first'); return; }
     const month = f.month;
 
-    function summaryRowsPrintHTML(sal, emp){
+    function summaryRowsPrintData(sal, emp){
       const sec = isSecurityEmp(emp);
       const accLabel  = sec ? 'Accommodation Deduction' : 'Accommodation Allowance';
       const foodLabel = sec ? 'Food Deduction' : 'Food Allowance';
-      const laundryRow = sec ? `<tr><td>Laundry Deduction</td><td class="right">—</td><td class="right">${dashDed(sal.allowances?.laundry||0)}</td></tr>` : '';
-      return `
-        <tr><td>Absent / Leave Days</td><td class="right">${dashN(sal.nonWorkedDays)}</td><td class="right">—</td></tr>
-        <tr><td>Basic Salary (net of Absent/Leave)</td><td class="right">${fmt(sal.rawBasicSalary)}</td><td class="right">${fmt(sal.basicSalary)}</td></tr>
-        <tr><td>Normal Overtime Hours</td><td class="right">${dashN(sal.normalOT)}</td><td class="right">${fmt(sal.normalOTAmt)}</td></tr>
-        <tr><td>Sunday OT Hours</td><td class="right">${dashN(sal.fridayOT)}</td><td class="right">${fmt(sal.fridayOTAmt)}</td></tr>
-        <tr><td>Public Holiday OT Hours</td><td class="right">${dashN(sal.phOT)}</td><td class="right">${fmt(sal.phOTAmt)}</td></tr>
-        <tr><td>Special Allowance</td><td class="right">—</td><td class="right">${fmt(sal.allowances?.special||0)}</td></tr>
-        <tr><td>Fix Allowance</td><td class="right">${dash(sal.rawAllowances.performance)}</td><td class="right">${fmt(sal.allowances?.performance||0)}</td></tr>
-        <tr><td>Performance Allowance</td><td class="right">${dash(sal.rawAllowances.performanceAllow)}</td><td class="right">${fmt(sal.allowances?.performanceAllow||0)}</td></tr>
-        <tr><td>${accLabel}</td><td class="right">${sec?dashDed(sal.rawAllowances.accommodation):dash(sal.rawAllowances.accommodation)}</td><td class="right">${sec?dashDed(sal.allowances?.accommodation||0):fmt(sal.allowances?.accommodation||0)}</td></tr>
-        <tr><td>${foodLabel}</td><td class="right">${sec?dashDed(sal.rawAllowances.food):dash(sal.rawAllowances.food)}</td><td class="right">${sec?dashDed(sal.allowances?.food||0):fmt(sal.allowances?.food||0)}</td></tr>${laundryRow}
-        <tr><td>Transport Allowance</td><td class="right">${dash(sal.rawAllowances.transport)}</td><td class="right">${fmt(sal.allowances?.transport||0)}</td></tr>
-        <tr><td>Ramadan Allowance</td><td class="right">${dash(sal.rawAllowances.ramadan)}</td><td class="right">${fmt(sal.allowances?.ramadan||0)}</td></tr>
-        <tr><td>Hazardous Allowance</td><td class="right">—</td><td class="right">${fmt(sal.allowances?.hazardous||0)}</td></tr>
-        <tr class="tfoot-total"><td colspan="2">Total Wages</td><td class="right">${fmt(sal.totalSalary)}</td></tr>`;
+      const rows = [
+        `<tr><td>Absent / Leave Days</td><td class="right">${dashN(sal.nonWorkedDays)}</td><td class="right">—</td></tr>`,
+        `<tr><td>Basic Salary (net of Absent/Leave)</td><td class="right">${fmt(sal.rawBasicSalary)}</td><td class="right">${fmt(sal.basicSalary)}</td></tr>`,
+        `<tr><td>Normal Overtime Hours</td><td class="right">${dashN(sal.normalOT)}</td><td class="right">${fmt(sal.normalOTAmt)}</td></tr>`,
+        `<tr><td>Sunday OT Hours</td><td class="right">${dashN(sal.fridayOT)}</td><td class="right">${fmt(sal.fridayOTAmt)}</td></tr>`,
+        `<tr><td>Public Holiday OT Hours</td><td class="right">${dashN(sal.phOT)}</td><td class="right">${fmt(sal.phOTAmt)}</td></tr>`,
+        `<tr><td>Special Allowance</td><td class="right">—</td><td class="right">${fmt(sal.allowances?.special||0)}</td></tr>`,
+        `<tr><td>Fix Allowance</td><td class="right">${dash(sal.rawAllowances.performance)}</td><td class="right">${fmt(sal.allowances?.performance||0)}</td></tr>`,
+        `<tr><td>Performance Allowance</td><td class="right">${dash(sal.rawAllowances.performanceAllow)}</td><td class="right">${fmt(sal.allowances?.performanceAllow||0)}</td></tr>`,
+        `<tr><td>${accLabel}</td><td class="right">${sec?dashDed(sal.rawAllowances.accommodation):dash(sal.rawAllowances.accommodation)}</td><td class="right">${sec?dashDed(sal.allowances?.accommodation||0):fmt(sal.allowances?.accommodation||0)}</td></tr>`,
+        `<tr><td>${foodLabel}</td><td class="right">${sec?dashDed(sal.rawAllowances.food):dash(sal.rawAllowances.food)}</td><td class="right">${sec?dashDed(sal.allowances?.food||0):fmt(sal.allowances?.food||0)}</td></tr>`,
+      ];
+      if(sec) rows.push(`<tr><td>Laundry Deduction</td><td class="right">—</td><td class="right">${dashDed(sal.allowances?.laundry||0)}</td></tr>`);
+      rows.push(
+        `<tr><td>Transport Allowance</td><td class="right">${dash(sal.rawAllowances.transport)}</td><td class="right">${fmt(sal.allowances?.transport||0)}</td></tr>`,
+        `<tr><td>Ramadan Allowance</td><td class="right">${dash(sal.rawAllowances.ramadan)}</td><td class="right">${fmt(sal.allowances?.ramadan||0)}</td></tr>`,
+        `<tr><td>Hazardous Allowance</td><td class="right">—</td><td class="right">${fmt(sal.allowances?.hazardous||0)}</td></tr>`
+      );
+      const totalRow = `<tr class="tfoot-total"><td colspan="2">Total Wages</td><td class="right">${fmt(sal.totalSalary)}</td></tr>`;
+      return {rows, totalRow};
     }
 
     function dayRowHTML(r, emp){
@@ -2115,9 +2122,12 @@ function pageTimesheet(main){
       const entries = getEntries(emp.id, month);
       const stats = calcAttendanceStats(entries);
       const sal = computeSalaryWithEntries(emp, entries, stats, getPayrollOverride(emp.id, month), month);
-      const half = Math.ceil(entries.length/2);
-      const leftRows = entries.slice(0, half).map(r=>dayRowHTML(r, emp)).join('');
-      const rightRows = entries.slice(half).map(r=>dayRowHTML(r, emp)).join('');
+      const allDayRows = entries.map(r=>dayRowHTML(r, emp)).join('');
+      const {rows: sumRows, totalRow} = summaryRowsPrintData(sal, emp);
+      const sumHalf = Math.ceil(sumRows.length/2);
+      const sumLeft = sumRows.slice(0, sumHalf).join('');
+      const sumRight = sumRows.slice(sumHalf).join('') + totalRow;
+      const sumHead = `<tr><th>Description</th><th>Hours</th><th>Amount (${DB.settings.currency})</th></tr>`;
       return `
         <div class="ts-page">
           <div class="ts-p-head">
@@ -2131,13 +2141,12 @@ function pageTimesheet(main){
             <div><b>Code:</b> ${emp.code}</div>
             <div><b>Region:</b> ${blockName(emp.blockId)}</div>
           </div>
-          <div class="ts-p-cols">
-            <div><table><thead>${dayHead}</thead><tbody>${leftRows}</tbody></table></div>
-            <div><table><thead>${dayHead}</thead><tbody>${rightRows}</tbody></table></div>
-          </div>
+          <div class="ts-p-days"><table><thead>${dayHead}</thead><tbody>${allDayRows}</tbody></table></div>
           <div style="font-size:8.5px;margin-bottom:6px;">TOTAL — Absent: ${stats.absentDays} | Leave: ${stats.leaveDays} | Medical: ${stats.medicalDays||0} | Week Off: ${stats.weekOffs} | Public Holiday: ${stats.holidayDays} &nbsp;|&nbsp; Normal OT: ${stats.totalNormal} | Sunday OT: ${stats.totalFriday} | PH OT: ${stats.totalPh}</div>
-          <div class="ts-p-summary"><table><thead><tr><th>Description</th><th>Hours</th><th>Amount (${DB.settings.currency})</th></tr></thead>
-            <tbody>${summaryRowsPrintHTML(sal, emp)}</tbody></table></div>
+          <div class="ts-p-summary">
+            <div><table><thead>${sumHead}</thead><tbody>${sumLeft}</tbody></table></div>
+            <div><table><thead>${sumHead}</thead><tbody>${sumRight}</tbody></table></div>
+          </div>
           <p class="ts-p-note">*** This timesheet was shown to the employee. The Supervisor, Area Supervisor, and Area Manager will sign to confirm.</p>
         </div>`;
     }).join('');
