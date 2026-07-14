@@ -983,7 +983,10 @@ function pageStructure(kind){
         <div class="filters">
           <div class="fitem"><label>Search</label><input type="text" id="structSearch" placeholder="Search..." value="${search}"></div>
           ${conf.parentKey ? `<div class="fitem"><label>Filter by ${conf.parentLabel}</label>
-          <select id="filterParent"><option value="">All</option>${DB[conf.parentArr].map(p=>`<option value="${p.id}" ${filterParent===p.id?'selected':''}>${p.name}</option>`).join('')}</select>
+          <select id="filterParent"><option value="">All</option>${DB[conf.parentArr].map(p=>{
+            const label = [p.code, p.name].filter(Boolean).join(' - ') || '(unnamed)';
+            return `<option value="${p.id}" ${filterParent===p.id?'selected':''}>${label}</option>`;
+          }).join('')}</select>
         </div>` : ''}
           ${isDiv ? `
           <div class="fitem"><label>Working Area</label><select id="dfArea"><option value="">All Working Areas</option>${areaOpts.map(a=>`<option value="${a.id}" ${fArea===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
@@ -1105,7 +1108,12 @@ function pageStructure(kind){
     let parentOptions = '';
     if(conf.parentKey){
       parentOptions = `<label>${conf.parentLabel}</label>
-        <select id="f_parent">${DB[conf.parentArr].map(p=>`<option value="${p.id}" ${editing&&editing[conf.parentKey]===p.id?'selected':''}>${p.name}</option>`).join('')}</select>`;
+        <select id="f_parent">${DB[conf.parentArr].map(p=>{
+          // Cost Centers usually have a code (L101, S2003, ...) and often no name — show
+          // "code - name", or whichever of the two exists, so no option renders blank.
+          const label = [p.code, p.name].filter(Boolean).join(' - ') || '(unnamed)';
+          return `<option value="${p.id}" ${editing&&editing[conf.parentKey]===p.id?'selected':''}>${label}</option>`;
+        }).join('')}</select>`;
       if(!DB[conf.parentArr].length){
         openModal(`<div class="modal-head"><h3>Add ${conf.title.slice(0,-1)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
         <p class="smallnote">You need to create at least one ${conf.parentLabel} first before adding a ${conf.title.slice(0,-1)}.</p>
