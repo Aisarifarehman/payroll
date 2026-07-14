@@ -1308,8 +1308,23 @@ function pageContractSites(main){
     );
   }
 
-  function renderInner(){
+  // Groups the filtered assignment rows by Contract Ref, so the table shows ONE row per
+  // contract — e.g. "A001" appears once even if 3 employees across 3 divisions are assigned to
+  // it — matching how the Divisions/Areas/Regions/Cost Centers pages show one row per item with
+  // roll-up counts, instead of one row per underlying record.
+  function groupedByContract(){
     const rows = filtered();
+    const groups = new Map();
+    rows.forEach(r=>{
+      const key = (r.contractRef||'').trim().toLowerCase();
+      if(!groups.has(key)) groups.set(key, {contractRef:r.contractRef, rows:[]});
+      groups.get(key).rows.push(r);
+    });
+    return [...groups.values()];
+  }
+
+  function renderInner(){
+    const groups = groupedByContract();
     main.innerHTML = `
       <div class="pageheader"><div><h2>Contract Sites</h2><div class="sub">Track which employee is designated to which client contract / site.</div></div>
         <button class="btn btn-gold" id="addCsBtn">+ Add Contract Site</button>
@@ -1322,23 +1337,19 @@ function pageContractSites(main){
           <div class="fitem"><label>Analytic Account</label><select id="csFSub"><option value="">All</option>${subAccountsOf(f.account||null).map(s=>`<option value="${s.id}" ${f.subaccount===s.id?'selected':''}>${s.code?s.code+' - ':''}${s.name}</option>`).join('')}</select></div>
         </div>
         <div class="tablewrap"><table><thead><tr>
-          <th>Client Contract Ref.</th><th>Client Contract Site Name</th><th>Division</th><th>Cost Center</th><th>Analytic Account</th><th>Employee</th><th class="right">Actions</th>
+          <th>Client Contract Ref.</th><th>Client Contract Site Name</th><th>Divisions</th><th>Employees</th><th class="right">Actions</th>
         </tr></thead><tbody>
-        ${rows.length? rows.map(r=>{
-          const emp = byId(DB.employees, r.employeeId);
+        ${groups.length? groups.map(g=>{
+          const sites = [...new Set(g.rows.map(r=>r.siteName).filter(Boolean))];
+          const divCount = new Set(g.rows.map(r=>r.divisionId).filter(Boolean)).size;
           return `<tr>
-            <td><a href="#" class="code-link" data-viewcontract="${esc(r.contractRef)}">${esc(r.contractRef)||'—'}</a></td>
-            <td>${esc(r.siteName)||'—'}</td>
-            <td>${divName(r.divisionId)}</td>
-            <td>${accName(r.accountId)}</td>
-            <td>${subAccName(r.analyticAccountId)}</td>
-            <td>${contractSiteEmpLabel(emp)}</td>
-            <td class="right">
-              <button class="btn-icon" data-edit="${r.id}">✏️</button>
-              <button class="btn-icon del" data-del="${r.id}">🗑️</button>
-            </td>
+            <td><a href="#" class="code-link" data-viewcontract="${esc(g.contractRef)}">${esc(g.contractRef)||'—'}</a></td>
+            <td>${sites.map(esc).join(', ')||'—'}</td>
+            <td><span class="badge">${divCount}</span></td>
+            <td><span class="badge">${g.rows.length}</span></td>
+            <td class="right"><button class="btn-icon" data-viewcontract2="${esc(g.contractRef)}">👁️ View</button></td>
           </tr>`;
-        }).join('') : `<tr><td colspan="7" class="empty">No contract site assignments match. Click "+ Add Contract Site" to create one.</td></tr>`}
+        }).join('') : `<tr><td colspan="5" class="empty">No contract site assignments match. Click "+ Add Contract Site" to create one.</td></tr>`}
         </tbody></table></div>
       </div>
     `;
@@ -1347,17 +1358,11 @@ function pageContractSites(main){
     document.getElementById('csFAcc').onchange = (e)=>{ f.account=e.target.value; f.subaccount=''; renderInner(); };
     document.getElementById('csFSub').onchange = (e)=>{ f.subaccount=e.target.value; renderInner(); };
     document.getElementById('addCsBtn').onclick = ()=>openCsForm(null);
-    main.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openCsForm(b.dataset.edit));
     main.querySelectorAll('[data-viewcontract]').forEach(a=>a.onclick=(ev)=>{ ev.preventDefault(); viewContract(a.dataset.viewcontract); });
-    main.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
-      confirmDelete("Remove this employee's designation to this contract/site? The employee record itself is not affected.", ()=>{
-        DB.contractSites = DB.contractSites.filter(x=>x.id!==b.dataset.del);
-        save(); toast('Removed'); renderInner();
-      });
-    });
+    main.querySelectorAll('[data-viewcontract2]').forEach(b=>b.onclick=()=>viewContract(b.dataset.viewcontract2));
   }
 
-  function openCsForm(id){
+  function openCsForm(id, prefill){
     const editing = id ? byId(DB.contractSites, id) : null;
     const div = editing ? editing.divisionId : (DB.divisions[0]?.id||'');
     // Cost Center intentionally lists ALL cost centers, not filtered by Division — a Division's
@@ -1373,8 +1378,8 @@ function pageContractSites(main){
     openModal(`
       <div class="modal-head"><h3>${editing?'Edit':'Add'} Contract Site</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="formgrid c2">
-        <div><label>Client Contract Ref.</label><input id="cs_ref" value="${editing?esc(editing.contractRef):''}" list="csRefList"></div>
-        <div><label>Client Contract Site Name</label><input id="cs_site" value="${editing?esc(editing.siteName):''}" list="csSiteList"></div>
+        <div><label>Client Contract Ref.</label><input id="cs_ref" value="${editing?esc(editing.contractRef):esc(prefill?.contractRef||'')}" list="csRefList"></div>
+        <div><label>Client Contract Site Name</label><input id="cs_site" value="${editing?esc(editing.siteName):esc(prefill?.siteName||'')}" list="csSiteList"></div>
       </div>
       <datalist id="csRefList">${[...new Set(DB.contractSites.map(r=>r.contractRef).filter(Boolean))].map(r=>`<option value="${esc(r)}">`).join('')}</datalist>
       <datalist id="csSiteList">${[...new Set(DB.contractSites.map(r=>r.siteName).filter(Boolean))].map(s=>`<option value="${esc(s)}">`).join('')}</datalist>
@@ -1442,7 +1447,8 @@ function pageContractSites(main){
   }
 
   /* "Click on any Client Contract name/ref and see all details of that particular client" —
-     aggregates every row sharing the same Contract Ref (case-insensitive) into one view. */
+     aggregates every row sharing the same Contract Ref (case-insensitive) into one view, and lets
+     you edit/remove an individual employee's assignment or add another employee right from here. */
   function viewContract(contractRef){
     const rows = DB.contractSites.filter(r=>(r.contractRef||'').trim().toLowerCase()===(contractRef||'').trim().toLowerCase());
     if(!rows.length){ toast('No details found for this contract'); return; }
@@ -1454,14 +1460,29 @@ function pageContractSites(main){
         <div><b>Employees Assigned:</b> ${rows.length}</div>
       </div>
       <hr class="divider">
-      <div class="tablewrap"><table><thead><tr><th>Employee</th><th>Site Name</th><th>Division</th><th>Cost Center</th><th>Analytic Account</th></tr></thead><tbody>
+      <div class="tablewrap"><table><thead><tr><th>Employee</th><th>Site Name</th><th>Division</th><th>Cost Center</th><th>Analytic Account</th><th class="right">Actions</th></tr></thead><tbody>
         ${rows.map(r=>{
           const emp = byId(DB.employees, r.employeeId);
-          return `<tr><td>${contractSiteEmpLabel(emp)}</td><td>${esc(r.siteName)||'—'}</td><td>${divName(r.divisionId)}</td><td>${accName(r.accountId)}</td><td>${subAccName(r.analyticAccountId)}</td></tr>`;
+          return `<tr><td>${contractSiteEmpLabel(emp)}</td><td>${esc(r.siteName)||'—'}</td><td>${divName(r.divisionId)}</td><td>${accName(r.accountId)}</td><td>${subAccName(r.analyticAccountId)}</td>
+            <td class="right">
+              <button class="btn-icon" data-cedit="${r.id}">✏️</button>
+              <button class="btn-icon del" data-cdel="${r.id}">🗑️</button>
+            </td></tr>`;
         }).join('')}
       </tbody></table></div>
-      <div class="modal-actions"><button class="btn btn-outline" onclick="closeModal()">Close</button></div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeModal()">Close</button>
+        <button class="btn btn-gold" id="addEmpToContractBtn">+ Add Employee to this Contract</button>
+      </div>
     `);
+    document.getElementById('addEmpToContractBtn').onclick = ()=>openCsForm(null, {contractRef, siteName: sites[0]||''});
+    document.querySelectorAll('[data-cedit]').forEach(b=>b.onclick=()=>openCsForm(b.dataset.cedit));
+    document.querySelectorAll('[data-cdel]').forEach(b=>b.onclick=()=>{
+      confirmDelete("Remove this employee's designation to this contract/site? The employee record itself is not affected.", ()=>{
+        DB.contractSites = DB.contractSites.filter(x=>x.id!==b.dataset.cdel);
+        save(); toast('Removed'); closeModal(); renderInner();
+      });
+    });
   }
 }
 
