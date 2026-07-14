@@ -43,15 +43,15 @@ body{margin:0;font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color
 .badge-out{color:#8a6d00;font-weight:700;}
 .badge-mt{color:#c0392b;font-weight:700;}
 .navgroup{padding:6px 12px 14px;}
-.navlabel{font-size:10px;text-transform:uppercase;color:#8ea0c6;padding:14px 6px 8px;letter-spacing:1.2px;font-weight:700;}
+.navlabel{font-size:9.5px;text-transform:uppercase;color:#8ea0c6;padding:10px 6px 5px;letter-spacing:1.2px;font-weight:700;}
 /* Card-style nav buttons — white rounded pill on the dark sidebar, icon in a soft tinted
    circle on the left, label in the middle, round blue "go" arrow on the right. Mirrors the
    clean list-card look of the reference mobile app screen. */
 .navbtn{
-  display:flex;align-items:center;gap:12px;width:100%;
-  background:#fdfefe;border:none;border-radius:14px;
-  color:#1b2334;padding:10px 12px;margin-bottom:9px;
-  text-align:left;font-size:13px;font-weight:700;cursor:pointer;
+  display:flex;align-items:center;gap:10px;width:100%;
+  background:#fdfefe;border:none;border-radius:12px;
+  color:#1b2334;padding:7px 10px;margin-bottom:6px;
+  text-align:left;font-size:12px;font-weight:700;cursor:pointer;
   box-shadow:0 2px 7px rgba(5,12,30,0.28);
   transition:transform .12s ease, box-shadow .12s ease, background .12s ease;
 }
@@ -59,17 +59,17 @@ body{margin:0;font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color
 .navbtn:active{transform:translateY(0);box-shadow:0 1px 4px rgba(5,12,30,0.28);}
 .navbtn.active{background:#eef4ff;box-shadow:0 0 0 2px var(--gold) inset, 0 3px 9px rgba(5,12,30,0.3);}
 .navbtn .navicon{
-  width:34px;height:34px;flex-shrink:0;border-radius:10px;
+  width:28px;height:28px;flex-shrink:0;border-radius:9px;
   background:linear-gradient(160deg,#eef2fb,#dfe6f7);
-  display:flex;align-items:center;justify-content:center;font-size:16px;
+  display:flex;align-items:center;justify-content:center;font-size:14px;
 }
 .navbtn.active .navicon{background:linear-gradient(160deg,#fff3d6,#ffe6a3);}
-.navbtn .navlbl{flex:1;line-height:1.25;}
+.navbtn .navlbl{flex:1;line-height:1.2;}
 .navbtn .navarrow{
-  width:26px;height:26px;flex-shrink:0;border-radius:50%;
+  width:22px;height:22px;flex-shrink:0;border-radius:50%;
   background:linear-gradient(160deg,#4d7cf0,#3660d6);
   color:#fff;display:flex;align-items:center;justify-content:center;
-  font-size:13px;font-weight:900;box-shadow:0 1px 3px rgba(0,0,0,0.25);
+  font-size:11px;font-weight:900;box-shadow:0 1px 3px rgba(0,0,0,0.25);
 }
 .navbtn.active .navarrow{background:linear-gradient(160deg,var(--gold-l),var(--gold));}
 .sidebar-footer{margin-top:auto;padding:14px 18px;font-size:10.5px;color:#8ea0c6;border-top:1px solid rgba(255,255,255,0.1);}
@@ -292,29 +292,29 @@ tr:hover td{background:#f8f9fd;}
    wage summary to a single A4 page instead of spilling onto a second sheet or overflowing the
    page width. */
 #tsPrintArea{display:none;background:#fff;color:#000;font-family:'Segoe UI',Arial,sans-serif;}
-#tsPrintArea .ts-page{page-break-after:always;padding:8mm;}
+#tsPrintArea .ts-page{page-break-after:always;padding:9mm;}
 #tsPrintArea .ts-page:last-child{page-break-after:auto;}
-#tsPrintArea .ts-p-head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #16264c;padding-bottom:5px;margin-bottom:6px;}
-#tsPrintArea .ts-p-co{font-size:14px;font-weight:700;color:#16264c;}
-#tsPrintArea .ts-p-title{font-size:11.5px;font-weight:700;color:#20335f;letter-spacing:.3px;}
-#tsPrintArea .ts-p-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:2px 16px;font-size:9.5px;margin-bottom:7px;background:#f6f8fc;padding:5px 8px;border-radius:5px;border:1px solid #ccc;}
-#tsPrintArea .ts-p-days{margin-bottom:7px;}
-#tsPrintArea .ts-p-days table{font-size:9px;}
-#tsPrintArea table{width:100%;border-collapse:collapse;font-size:8px;table-layout:fixed;}
+#tsPrintArea .ts-p-head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #16264c;padding-bottom:6px;margin-bottom:8px;}
+#tsPrintArea .ts-p-co{font-size:15px;font-weight:700;color:#16264c;}
+#tsPrintArea .ts-p-title{font-size:12.5px;font-weight:700;color:#20335f;letter-spacing:.3px;}
+#tsPrintArea .ts-p-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:3px 18px;font-size:10.5px;margin-bottom:10px;background:#f6f8fc;padding:7px 10px;border-radius:6px;border:1px solid #ccc;}
+#tsPrintArea .ts-p-days{margin-bottom:10px;}
+#tsPrintArea .ts-p-days table{font-size:9.8px;}
+#tsPrintArea table{width:100%;border-collapse:collapse;font-size:9.2px;table-layout:fixed;}
 #tsPrintArea thead{display:table-header-group;}
 #tsPrintArea tbody tr{page-break-inside:avoid;}
-#tsPrintArea th,#tsPrintArea td{border:1px solid #666;padding:1.5px 2.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-#tsPrintArea th{background:#eef1f8!important;color:#16264c;font-size:7.6px;text-align:center;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+#tsPrintArea th,#tsPrintArea td{border:1px solid #666;padding:3px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#tsPrintArea th{background:#eef1f8!important;color:#16264c;font-size:8.8px;text-align:center;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
 #tsPrintArea .right{text-align:right;}
 #tsPrintArea .ts-p-wo{background:#fde8e8!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
 /* Calculation/summary table is split into two side-by-side halves (not one long list) so it
    takes half the vertical space, and spans the FULL page width like the day grid above it. */
-#tsPrintArea .ts-p-summary{display:flex;gap:6mm;margin-top:2px;}
+#tsPrintArea .ts-p-summary{display:flex;gap:8mm;margin-top:3px;}
 #tsPrintArea .ts-p-summary>div{flex:1;min-width:0;}
-#tsPrintArea .ts-p-summary table{font-size:9px;}
+#tsPrintArea .ts-p-summary table{font-size:10px;}
 #tsPrintArea .ts-p-summary td:first-child{white-space:normal;}
 #tsPrintArea tfoot td{font-weight:700;background:#f4f6fb!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-#tsPrintArea .ts-p-note{font-size:8.5px;font-style:italic;color:#333;margin-top:6px;}
+#tsPrintArea .ts-p-note{font-size:9.5px;font-style:italic;color:#333;margin-top:10px;}
 /* Wage Card print area — hidden on screen, rendered only while printing via Print Options */
 #wcPrintArea{display:none;background:#fff;color:#000;font-family:'Segoe UI',Arial,sans-serif;}
 #wcPrintArea .wc-page{page-break-after:always;padding:8mm;}
@@ -535,12 +535,14 @@ function defaultData(){
   const blocks = [];
   const accounts = [];
   const analyticAccounts = []; // sub-level under a Cost Center: {id, accountId, code, name}
+  const contractSites = []; // client contract/site assignments: {id, divisionId, contractRef, siteName, accountId, analyticAccountId, employeeId}
   const employees = [];
 
   return {
     divisions: divisions,
     areas: areas, blocks: blocks, accounts: accounts,
     analyticAccounts: analyticAccounts,
+    contractSites: contractSites,
     employees: employees,
     timesheets:{}, // employeeId -> monthKey -> [dayEntry]
     timesheetTouched:{}, // employeeId -> monthKey -> true, ONLY set on a genuine user edit (never just from viewing/generating default rows)
@@ -631,7 +633,8 @@ const NAV = [
     {id:'areas', label:'Areas', icon:'📍'},
     {id:'blocks', label:'Regions', icon:'🧱'},
     {id:'accounts', label:'Cost Centers', icon:'🔢'},
-    {id:'subaccounts', label:'Analytic Accounts', icon:'🧾'}
+    {id:'subaccounts', label:'Analytic Accounts', icon:'🧾'},
+    {id:'contractsites', label:'Contract Sites', icon:'📋'}
   ]},
   {group:'People', items:[
     {id:'employees', label:'Employees', icon:'👥'},
@@ -685,6 +688,7 @@ function renderPage(){
   const renderers = {
     dashboard: pageDashboard, divisions: ()=>pageStructure('divisions'), areas: ()=>pageStructure('areas'),
     blocks: ()=>pageStructure('blocks'), accounts: ()=>pageStructure('accounts'), subaccounts: ()=>pageStructure('subaccounts'),
+    contractsites: pageContractSites,
     employees: pageEmployees, transfers: pageTransfers, timesheet: pageTimesheet,
     hazardous: pageHazardous,
     salary: pageSalary, wagecard: pageWageCard, costcenter: pageCostCentre, settings: pageSettings
@@ -1221,6 +1225,192 @@ function pageStructure(kind){
       else { DB[conf.arr].push(Object.assign({id:uid()}, data)); }
       save(); closeModal(); toast('Saved'); renderInner();
     };
+  }
+}
+
+/* ============================= CONTRACT SITES ============================= */
+/* Tracks which employee is designated to which client contract/site — e.g. "Client X, Site Y"
+   under the Laundry division, Cost Center L101, Analytic Account A001. One row = one employee's
+   assignment to a contract. Multiple employees on the same contract are multiple rows sharing the
+   same Contract Ref / Site Name — clicking a Contract Ref aggregates all of them into one details
+   view (the "see all details of that client" requirement), without needing a separate contracts
+   table now. This is a dedicated page (not the generic pageStructure/STRUCT_CONF system used for
+   Divisions/Areas/Regions/Cost Centers/Analytic Accounts) because it links THREE different parents
+   (Division, Cost Center, Analytic Account) plus an Employee — more than that generic single-parent
+   system supports. */
+function contractSiteEmpLabel(emp){
+  if(!emp) return '— (employee deleted)';
+  return `${emp.code} - ${emp.name}`;
+}
+function pageContractSites(main){
+  let f = {division:'', account:'', subaccount:'', search:''};
+  renderInner();
+
+  function filtered(){
+    return DB.contractSites.filter(r=>
+      (!f.division || r.divisionId===f.division) &&
+      (!f.account || r.accountId===f.account) &&
+      (!f.subaccount || r.analyticAccountId===f.subaccount) &&
+      (!f.search || (r.contractRef+' '+r.siteName).toLowerCase().includes(f.search.toLowerCase())
+        || (byId(DB.employees,r.employeeId)||{}).name?.toLowerCase().includes(f.search.toLowerCase())
+        || (byId(DB.employees,r.employeeId)||{}).code?.toLowerCase().includes(f.search.toLowerCase()))
+    );
+  }
+
+  function renderInner(){
+    const rows = filtered();
+    main.innerHTML = `
+      <div class="pageheader"><div><h2>Contract Sites</h2><div class="sub">Track which employee is designated to which client contract / site.</div></div>
+        <button class="btn btn-gold" id="addCsBtn">+ Add Contract Site</button>
+      </div>
+      <div class="card">
+        <div class="filters">
+          <div class="fitem"><label>Search</label><input id="csSearch" placeholder="Contract ref, site, or employee..." value="${f.search}"></div>
+          <div class="fitem"><label>Division</label><select id="csFDiv"><option value="">All</option>${DB.divisions.map(d=>`<option value="${d.id}" ${f.division===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Cost Center</label><select id="csFAcc"><option value="">All</option>${accountsOfDivision(f.division||null).map(a=>`<option value="${a.id}" ${f.account===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('')}</select></div>
+          <div class="fitem"><label>Analytic Account</label><select id="csFSub"><option value="">All</option>${subAccountsOf(f.account||null).map(s=>`<option value="${s.id}" ${f.subaccount===s.id?'selected':''}>${s.code?s.code+' - ':''}${s.name}</option>`).join('')}</select></div>
+        </div>
+        <div class="tablewrap"><table><thead><tr>
+          <th>Client Contract Ref.</th><th>Client Contract Site Name</th><th>Division</th><th>Cost Center</th><th>Analytic Account</th><th>Employee</th><th class="right">Actions</th>
+        </tr></thead><tbody>
+        ${rows.length? rows.map(r=>{
+          const emp = byId(DB.employees, r.employeeId);
+          return `<tr>
+            <td><a href="#" class="code-link" data-viewcontract="${esc(r.contractRef)}">${esc(r.contractRef)||'—'}</a></td>
+            <td>${esc(r.siteName)||'—'}</td>
+            <td>${divName(r.divisionId)}</td>
+            <td>${accName(r.accountId)}</td>
+            <td>${subAccName(r.analyticAccountId)}</td>
+            <td>${contractSiteEmpLabel(emp)}</td>
+            <td class="right">
+              <button class="btn-icon" data-edit="${r.id}">✏️</button>
+              <button class="btn-icon del" data-del="${r.id}">🗑️</button>
+            </td>
+          </tr>`;
+        }).join('') : `<tr><td colspan="7" class="empty">No contract site assignments match. Click "+ Add Contract Site" to create one.</td></tr>`}
+        </tbody></table></div>
+      </div>
+    `;
+    document.getElementById('csSearch').oninput = (e)=>{ f.search=e.target.value; renderInner(); const el=document.getElementById('csSearch'); el.focus(); el.setSelectionRange(f.search.length,f.search.length); };
+    document.getElementById('csFDiv').onchange = (e)=>{ f.division=e.target.value; f.account=''; f.subaccount=''; renderInner(); };
+    document.getElementById('csFAcc').onchange = (e)=>{ f.account=e.target.value; f.subaccount=''; renderInner(); };
+    document.getElementById('csFSub').onchange = (e)=>{ f.subaccount=e.target.value; renderInner(); };
+    document.getElementById('addCsBtn').onclick = ()=>openCsForm(null);
+    main.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openCsForm(b.dataset.edit));
+    main.querySelectorAll('[data-viewcontract]').forEach(a=>a.onclick=(ev)=>{ ev.preventDefault(); viewContract(a.dataset.viewcontract); });
+    main.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
+      confirmDelete("Remove this employee's designation to this contract/site? The employee record itself is not affected.", ()=>{
+        DB.contractSites = DB.contractSites.filter(x=>x.id!==b.dataset.del);
+        save(); toast('Removed'); renderInner();
+      });
+    });
+  }
+
+  function openCsForm(id){
+    const editing = id ? byId(DB.contractSites, id) : null;
+    const div = editing ? editing.divisionId : (DB.divisions[0]?.id||'');
+    const accList = accountsOfDivision(div);
+    const acc = editing ? editing.accountId : (accList[0]?.id||'');
+    const subList = subAccountsOf(acc);
+    const sub = editing ? editing.analyticAccountId : (subList[0]?.id||'');
+    const activeEmps = DB.employees.filter(e=>(e.status||'Active')==='Active');
+    openModal(`
+      <div class="modal-head"><h3>${editing?'Edit':'Add'} Contract Site</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="formgrid c2">
+        <div><label>Client Contract Ref.</label><input id="cs_ref" value="${editing?esc(editing.contractRef):''}" list="csRefList"></div>
+        <div><label>Client Contract Site Name</label><input id="cs_site" value="${editing?esc(editing.siteName):''}"></div>
+      </div>
+      <datalist id="csRefList">${[...new Set(DB.contractSites.map(r=>r.contractRef).filter(Boolean))].map(r=>`<option value="${esc(r)}">`).join('')}</datalist>
+      <hr class="divider">
+      <div class="formgrid c4">
+        <div><label>Division</label><select id="cs_div">${DB.divisions.map(d=>`<option value="${d.id}" ${div===d.id?'selected':''}>${d.name}</option>`).join('') || '<option value="">— none —</option>'}</select>
+          <a href="#" class="qc-link" data-qc="divisions" data-qc-label="Division" style="display:inline-block;margin-top:4px;font-size:11.5px;color:var(--gold);text-decoration:none;">+ New Division</a></div>
+        <div><label>Cost Center</label><select id="cs_acc"></select>
+          <a href="#" class="qc-link" data-qc="accounts" data-qc-label="Cost Center" style="display:inline-block;margin-top:4px;font-size:11.5px;color:var(--gold);text-decoration:none;">+ New Cost Center</a></div>
+        <div><label>Analytic Account</label><select id="cs_sub"></select>
+          <a href="#" class="qc-link" data-qc="subaccounts" data-qc-label="Analytic Account" style="display:inline-block;margin-top:4px;font-size:11.5px;color:var(--gold);text-decoration:none;">+ New Analytic Account</a></div>
+        <div><label>Employee Name</label><select id="cs_emp">${activeEmps.map(e=>`<option value="${e.id}" ${editing&&editing.employeeId===e.id?'selected':''}>${e.code} - ${e.name}</option>`).join('') || '<option value="">— no active employees —</option>'}</select></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-gold" id="saveCsBtn">Save</button>
+      </div>
+    `);
+    function refreshAcc(selDiv, selAcc){
+      const list = accountsOfDivision(selDiv);
+      document.getElementById('cs_acc').innerHTML = list.map(a=>`<option value="${a.id}" ${selAcc===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('') || '<option value="">— none —</option>';
+      refreshSub(selAcc || (list[0]?.id||''), editing?editing.analyticAccountId:null);
+    }
+    function refreshSub(selAcc, selSub){
+      const list = subAccountsOf(selAcc);
+      document.getElementById('cs_sub').innerHTML = list.map(s=>`<option value="${s.id}" ${selSub===s.id?'selected':''}>${s.code?s.code+' - ':''}${s.name}</option>`).join('') || '<option value="">— none —</option>';
+    }
+    refreshAcc(div, acc);
+    document.getElementById('cs_div').onchange = (e)=>refreshAcc(e.target.value,'');
+    document.getElementById('cs_acc').onchange = (e)=>refreshSub(e.target.value,'');
+
+    function collectCsFormData(){
+      const contractRef = document.getElementById('cs_ref').value.trim();
+      const siteName = document.getElementById('cs_site').value.trim();
+      const employeeId = document.getElementById('cs_emp').value;
+      if(!contractRef || !siteName){ toast('Contract Ref. and Site Name are required'); return null; }
+      if(!employeeId){ toast('Select an employee'); return null; }
+      return {
+        contractRef, siteName, employeeId,
+        divisionId: document.getElementById('cs_div').value,
+        accountId: document.getElementById('cs_acc').value,
+        analyticAccountId: document.getElementById('cs_sub').value
+      };
+    }
+    document.getElementById('saveCsBtn').onclick = ()=>{
+      const data = collectCsFormData();
+      if(!data) return;
+      if(editing){ Object.assign(editing, data); }
+      else { DB.contractSites.push(Object.assign({id:uid()}, data)); }
+      save(); closeModal(); toast('Saved'); renderInner();
+    };
+    // Same save-first-then-jump pattern as the Employees form's quick-create links.
+    document.querySelectorAll('.qc-link').forEach(a=>{
+      a.onclick = (ev)=>{
+        ev.preventDefault();
+        const kind = a.dataset.qc, label = a.dataset.qcLabel;
+        const data = collectCsFormData();
+        if(!data) return;
+        confirmAction(
+          'Save Contract Site?',
+          `To create a new ${label}, this contract site entry needs to be saved first. Save and continue to ${label}?`,
+          'Yes, Save & Continue',
+          ()=>{
+            if(editing){ Object.assign(editing, data); }
+            else { DB.contractSites.push(Object.assign({id:uid()}, data)); }
+            save(); closeModal(); goToStructAdd(kind);
+          }
+        );
+      };
+    });
+  }
+
+  /* "Click on any Client Contract name/ref and see all details of that particular client" —
+     aggregates every row sharing the same Contract Ref (case-insensitive) into one view. */
+  function viewContract(contractRef){
+    const rows = DB.contractSites.filter(r=>(r.contractRef||'').trim().toLowerCase()===(contractRef||'').trim().toLowerCase());
+    if(!rows.length){ toast('No details found for this contract'); return; }
+    const sites = [...new Set(rows.map(r=>r.siteName).filter(Boolean))];
+    openModal(`
+      <div class="modal-head"><h3>Contract: ${esc(contractRef)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="formgrid c2">
+        <div><b>Site(s):</b> ${sites.map(esc).join(', ')||'—'}</div>
+        <div><b>Employees Assigned:</b> ${rows.length}</div>
+      </div>
+      <hr class="divider">
+      <div class="tablewrap"><table><thead><tr><th>Employee</th><th>Site Name</th><th>Division</th><th>Cost Center</th><th>Analytic Account</th></tr></thead><tbody>
+        ${rows.map(r=>{
+          const emp = byId(DB.employees, r.employeeId);
+          return `<tr><td>${contractSiteEmpLabel(emp)}</td><td>${esc(r.siteName)||'—'}</td><td>${divName(r.divisionId)}</td><td>${accName(r.accountId)}</td><td>${subAccName(r.analyticAccountId)}</td></tr>`;
+        }).join('')}
+      </tbody></table></div>
+      <div class="modal-actions"><button class="btn btn-outline" onclick="closeModal()">Close</button></div>
+    `);
   }
 }
 
@@ -2123,6 +2313,10 @@ function pageTimesheet(main){
       const stats = calcAttendanceStats(entries);
       const sal = computeSalaryWithEntries(emp, entries, stats, getPayrollOverride(emp.id, month), month);
       const allDayRows = entries.map(r=>dayRowHTML(r, emp)).join('');
+      const dayFoot = `<tr class="tfoot-total">
+        <td colspan="6">TOTAL — Absent: ${stats.absentDays} | Leave: ${stats.leaveDays} | Medical: ${stats.medicalDays||0} | Week Off: ${stats.weekOffs} | Public Holiday: ${stats.holidayDays}</td>
+        <td class="right">${stats.totalNormal}</td><td class="right">${stats.totalFriday}</td><td class="right">${stats.totalPh}</td><td></td>
+      </tr>`;
       const {rows: sumRows, totalRow} = summaryRowsPrintData(sal, emp);
       const sumHalf = Math.ceil(sumRows.length/2);
       const sumLeft = sumRows.slice(0, sumHalf).join('');
@@ -2141,8 +2335,7 @@ function pageTimesheet(main){
             <div><b>Code:</b> ${emp.code}</div>
             <div><b>Region:</b> ${blockName(emp.blockId)}</div>
           </div>
-          <div class="ts-p-days"><table><thead>${dayHead}</thead><tbody>${allDayRows}</tbody></table></div>
-          <div style="font-size:8.5px;margin-bottom:6px;">TOTAL — Absent: ${stats.absentDays} | Leave: ${stats.leaveDays} | Medical: ${stats.medicalDays||0} | Week Off: ${stats.weekOffs} | Public Holiday: ${stats.holidayDays} &nbsp;|&nbsp; Normal OT: ${stats.totalNormal} | Sunday OT: ${stats.totalFriday} | PH OT: ${stats.totalPh}</div>
+          <div class="ts-p-days"><table><thead>${dayHead}</thead><tbody>${allDayRows}</tbody><tfoot>${dayFoot}</tfoot></table></div>
           <div class="ts-p-summary">
             <div><table><thead>${sumHead}</thead><tbody>${sumLeft}</tbody></table></div>
             <div><table><thead>${sumHead}</thead><tbody>${sumRight}</tbody></table></div>
@@ -3869,7 +4062,7 @@ function mergeBackupData(parsed){
     if(!x || !y) return false;
     return x===y || x.includes(y) || y.includes(x);
   };
-  const res = {divisions:0, areas:0, blocks:0, accounts:0, subaccounts:0, newEmployees:0, updatedEmployees:0, timesheetMonths:0, payrollRecs:0, hazardousRecs:0};
+  const res = {divisions:0, areas:0, blocks:0, accounts:0, subaccounts:0, contractSites:0, newEmployees:0, updatedEmployees:0, timesheetMonths:0, payrollRecs:0, hazardousRecs:0};
   const divMap={}, areaMap={}, blockMap={}, accMap={}, subAccMap={}, empMap={};
   (parsed.divisions||[]).forEach(d=>{
     const ex = DB.divisions.find(x=>namesMatch(x.name, d.name));
@@ -3920,6 +4113,25 @@ function mergeBackupData(parsed){
       const ne = Object.assign({}, emp, {id: uid()}, remapped);
       DB.employees.push(ne); empMap[emp.id]=ne.id; res.newEmployees++;
     }
+  });
+  // Contract Site assignments — remap every foreign key (division/cost center/analytic
+  // account/employee) through the maps built above. Matched by (contractRef + siteName +
+  // the REMAPPED employee), so re-importing the same backup updates rather than duplicates.
+  // A row whose employee no longer exists anywhere (empMap has no entry) is skipped rather than
+  // saved with a dangling employeeId.
+  (parsed.contractSites||[]).forEach(cs=>{
+    const newEmpId = empMap[cs.employeeId];
+    if(!newEmpId) return;
+    const remapped = {
+      divisionId: divMap[cs.divisionId]||cs.divisionId||'',
+      accountId: accMap[cs.accountId]||cs.accountId||'',
+      analyticAccountId: subAccMap[cs.analyticAccountId]||cs.analyticAccountId||'',
+      employeeId: newEmpId,
+      contractRef: cs.contractRef||'', siteName: cs.siteName||''
+    };
+    const ex = DB.contractSites.find(x=> x.employeeId===newEmpId && normKey(x.contractRef)===normKey(cs.contractRef) && normKey(x.siteName)===normKey(cs.siteName));
+    if(ex){ Object.assign(ex, remapped, {id: ex.id}); }
+    else { DB.contractSites.push(Object.assign({id:uid()}, remapped)); res.contractSites++; }
   });
   // Remap a day-entries array's per-day Cost Center override from the backup file's account ids
   // to the ids actually used in this browser (accMap) — without this, imported days keep an id
@@ -4382,7 +4594,7 @@ function pageSettings(main){
         document.getElementById('impMergeBtn').onclick = ()=>{
           const r = mergeBackupData(parsed);
           saveNow(); closeModal(); renderPage();
-          toast(`Merged: +${r.newEmployees} new employees (${r.updatedEmployees} updated), +${r.divisions+r.areas+r.blocks+r.accounts+r.subaccounts} new structure items, ${r.timesheetMonths} timesheet months imported, ${r.payrollRecs} payroll records imported`);
+          toast(`Merged: +${r.newEmployees} new employees (${r.updatedEmployees} updated), +${r.divisions+r.areas+r.blocks+r.accounts+r.subaccounts} new structure items, +${r.contractSites} contract site assignments, ${r.timesheetMonths} timesheet months imported, ${r.payrollRecs} payroll records imported`);
         };
         document.getElementById('impReplaceBtn').onclick = ()=>{
           closeModal();
