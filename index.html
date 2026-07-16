@@ -492,12 +492,7 @@ async function pushRemoteDB(dbObj){
         .upsert({id: ROW_ID, data: dbObj, updated_at: new Date().toISOString(), updated_by: CLIENT_ID})
         .select('updated_at'));
     }
-    if(error){
-      const msg = error?.message || error?.code || JSON.stringify(error);
-      console.error('Remote save failed:', msg, error);
-      toast('⚠️ Cloud save error: ' + msg);
-      return;
-    }
+    if(error){ console.error('Remote save failed', error); return; }
     if(rows && rows.length){
       // Store the server's own returned timestamp string (not our locally computed one) so the
       // next comparison is always byte-for-byte what Postgres actually has, avoiding any
@@ -509,10 +504,7 @@ async function pushRemoteDB(dbObj){
       // whatever they just changed, rather than lose it silently.
       await pullRemoteAfterConflict();
     }
-  }catch(err){
-    const msg = err?.message || err?.code || JSON.stringify(err);
-    console.error('Remote save failed:', msg, err);
-  }
+  }catch(err){ console.error('Remote save failed', err); }
 }
 async function pullRemoteAfterConflict(){
   try{
@@ -614,7 +606,6 @@ function defaultData(){
       otNormalRate:1.25, otFridayRate:1.5, otPhRate:1.5,
       currency:'AED',
       weekOffDays:['Sun'],
-      divisionWeekOffDays:{},   // per-division overrides e.g. {'laundryId':['Sat'], 'secId':['Fri','Sun']}
       twelveHourMultiplier:1.25,
       hazardousExtraRate:1.25,
       // Optional branding. BOTH blank by default -> the app looks exactly as it did before.
@@ -2076,16 +2067,7 @@ function dateDisplay(dateStr){
   const dow = d.toLocaleDateString('en-US',{weekday:'short'});
   return day+' '+mon+' - '+dow;
 }
-/* Returns the effective week-off days for a given division.
-   Checks divisionWeekOffDays first; falls back to the global weekOffDays setting. */
-function weekOffDaysFor(divisionId){
-  const divMap = DB.settings.divisionWeekOffDays || {};
-  if(divisionId && divMap[divisionId] !== undefined) return divMap[divisionId];
-  return DB.settings.weekOffDays || [];
-}
-function isWeekOffDate(dateStr, divisionId){
-  return weekOffDaysFor(divisionId).includes(weekdayAbbrev(dateStr));
-}
+function isWeekOffDate(dateStr){ return (DB.settings.weekOffDays||[]).includes(weekdayAbbrev(dateStr)); }
 /* An untouched "default working day" row, as auto-generated when a timesheet is first created */
 function isDefaultWorkingRow(r){
   return !r.remark && r.timeIn==='08:00' && r.timeOut==='20:00';
@@ -2098,9 +2080,9 @@ function isBlankRow(r){
    - a default working row that now falls on a week-off day gets blanked out
    - a blank row that no longer falls on a week-off day gets the default working values
    Rows the user has actually edited (a remark, custom OT hours, etc.) are left untouched. */
-function syncWeekOffRows(entries, divisionId){
+function syncWeekOffRows(entries){
   entries.forEach(r=>{
-    const isWO = isWeekOffDate(r.date, divisionId);
+    const isWO = isWeekOffDate(r.date);
     if(isWO && isDefaultWorkingRow(r)){
       Object.assign(r, {remark:'', timeIn:'', break1:'', break2:'', timeOut:'', normalOT:'', fridayOT:'', phOT:''});
     } else if(!isWO && isBlankRow(r)){
@@ -2109,11 +2091,11 @@ function syncWeekOffRows(entries, divisionId){
   });
   bumpTimesheetVersion(entries);
 }
-function calcAttendanceStats(entries, divisionId){
+function calcAttendanceStats(entries){
   let totalNormal=0, totalFriday=0, totalPh=0, absentDays=0, weekOffs=0, leaveDays=0, holidayDays=0, medicalDays=0;
   entries.forEach(r=>{
     totalNormal+=Number(r.normalOT)||0; totalFriday+=Number(r.fridayOT)||0; totalPh+=Number(r.phOT)||0;
-    if(isWeekOffDate(r.date, divisionId)) weekOffs++;
+    if(isWeekOffDate(r.date)) weekOffs++;
     const rm = (r.remark||'').toUpperCase();
     if(rm==='ABSENT') absentDays++;
     else if(rm==='EMERGENCY'||rm==='VACATION') leaveDays++;
@@ -2149,10 +2131,7 @@ function pageTimesheet(main){
   function renderInner(){
     const emps = empList();
     if(f.employeeId && !emps.find(e=>e.id===f.employeeId)) f.employeeId='';
-    // Week-off days are per-division. When a division is selected in the filter,
-    // show and edit that division's week-off days. Otherwise show/edit the global default.
-    const woDays = f.division ? weekOffDaysFor(f.division) : (DB.settings.weekOffDays||[]);
-    const woDivLabel = f.division ? `(${divName(f.division)} only)` : '(Global default)';
+    const woDays = DB.settings.weekOffDays||[];
     main.innerHTML = `
       <div class="pageheader no-print"><div><h2>Daily Timesheet</h2><div class="sub">Enter daily attendance per employee, drilled down by Division / Working Area / Region — 24-hour format</div></div>
         <button class="btn btn-outline" id="printAllBtn">🖨 Print</button>
@@ -2176,14 +2155,14 @@ function pageTimesheet(main){
           </div>
           ${monthYearPickerHTML('fMonth', f.month)}
           <div class="fitem">
-            <label>Week Off Days <span style="font-weight:400;color:var(--muted);font-size:11px;">${woDivLabel}</span></label>
+            <label>Week Off Days</label>
             <div style="display:flex;gap:10px;padding:8px 10px;background:#fff;border:1px solid var(--border);border-radius:7px;">
               ${['Fri','Sat','Sun'].map(d=>`<label style="display:flex;align-items:center;gap:4px;margin:0;font-weight:400;"><input type="checkbox" class="woChk" value="${d}" ${woDays.includes(d)?'checked':''}> ${d}</label>`).join('')}
             </div>
           </div>
           <div class="fitem" style="align-self:flex-end;"><button class="btn btn-gold btn-sm" id="applyWoBtn">Apply Week Off (blank matching days)</button></div>
         </div>
-        <p class="smallnote">${emps.length} employee(s) match current filters. Ticking a Week Off day saves it for the ${f.division?`<b>${divName(f.division)}</b> division`:'global default'} and highlights matching dates; click "Apply" to blank out those days for ${monthLabel(f.month)}. <b>Select a Division above to set its own week-off days independently.</b></p>
+        <p class="smallnote">${emps.length} employee(s) match current filters. Ticking a Week Off day highlights matching dates automatically; click "Apply" to blank out those days across the employees shown below for ${monthLabel(f.month)}.</p>
       </div>
       <div id="tsGrid"></div>
     `;
@@ -2211,27 +2190,14 @@ function pageTimesheet(main){
       renderInner();
     };
     main.querySelectorAll('.woChk').forEach(chk=>chk.addEventListener('change', ()=>{
-      const checkedDays = Array.from(main.querySelectorAll('.woChk:checked')).map(c=>c.value);
-      if(f.division){
-        DB.settings.divisionWeekOffDays = DB.settings.divisionWeekOffDays || {};
-        DB.settings.divisionWeekOffDays[f.division] = checkedDays;
-      } else {
-        DB.settings.weekOffDays = checkedDays;
-      }
+      DB.settings.weekOffDays = Array.from(main.querySelectorAll('.woChk:checked')).map(c=>c.value);
       const scopeEmps = empList();
-      scopeEmps.forEach(e=>{ syncWeekOffRows(getEntries(e.id, f.month), e.divisionId); });
+      scopeEmps.forEach(e=>{ syncWeekOffRows(getEntries(e.id, f.month)); });
       saveNow(); renderGrid();
     }));
     document.getElementById('applyWoBtn').onclick = ()=>{
-      const checkedDays = Array.from(main.querySelectorAll('.woChk:checked')).map(c=>c.value);
-      if(f.division){
-        DB.settings.divisionWeekOffDays = DB.settings.divisionWeekOffDays || {};
-        DB.settings.divisionWeekOffDays[f.division] = checkedDays;
-      } else {
-        DB.settings.weekOffDays = checkedDays;
-      }
       const scopeEmps = empList();
-      scopeEmps.forEach(e=>{ syncWeekOffRows(getEntries(e.id, f.month), e.divisionId); });
+      scopeEmps.forEach(e=>{ syncWeekOffRows(getEntries(e.id, f.month)); });
       saveNow(); toast('Week off days synced for '+scopeEmps.length+' employee(s)'); renderGrid();
     };
     renderGrid();
@@ -2241,11 +2207,9 @@ function pageTimesheet(main){
     DB.timesheets[empId] = DB.timesheets[empId] || {};
     if(!DB.timesheets[empId][month]){
       const dates = periodDates(month);
-      const empObj = byId(DB.employees, empId) || {};
-      const empAcctId = empObj.accountId || '';
-      const empDivId = empObj.divisionId || '';
+      const empAcctId = (byId(DB.employees, empId)||{}).accountId || '';
       const arr = dates.map(dateStr=>{
-        if(isWeekOffDate(dateStr, empDivId)){
+        if(isWeekOffDate(dateStr)){
           return {date:dateStr, remark:'', timeIn:'', break1:'', break2:'', timeOut:'', normalOT:'', fridayOT:'', phOT:'', accountId:empAcctId};
         }
         return {date:dateStr, remark:'', timeIn:'08:00', break1:'12:00-13:00', break2:'17:00-18:00', timeOut:'20:00', normalOT:2, fridayOT:0, phOT:0, accountId:empAcctId};
@@ -2272,13 +2236,13 @@ function pageTimesheet(main){
 
   function employeeSheetHTML(emp, month){
     const entries = getEntries(emp.id, month);
-    const stats = calcAttendanceStats(entries, emp.divisionId);
+    const stats = calcAttendanceStats(entries);
     const uidTag = emp.id;
     const sal = computeSalaryWithEntries(emp, entries, stats, getPayrollOverride(emp.id, month), month);
     const rowsHTML = entries.map((r,idx)=>{
       const dow = weekdayAbbrev(r.date);
       const rm = (r.remark||'').toUpperCase();
-      const isWO = isWeekOffDate(r.date, emp.divisionId);
+      const isWO = isWeekOffDate(r.date);
       const isLeaveLike = rm && rm!=='';
       const rowClass = isWO ? 'weekoff-row' : (rm==='MEDICAL LEAVE' ? 'medical-row' : (isLeaveLike ? 'absent-row' : ''));
       return `<tr class="${rowClass}" data-emp="${uidTag}" data-idx="${idx}">
@@ -2397,7 +2361,7 @@ function pageTimesheet(main){
     }
 
     function dayRowHTML(r, emp){
-      const isWO = isWeekOffDate(r.date, emp.divisionId);
+      const isWO = isWeekOffDate(r.date);
       const rm = (r.remark||'').toUpperCase();
       const cc = r.accountId||emp.accountId;
       const accObj = cc ? byId(DB.accounts, cc) : null;
@@ -2418,7 +2382,7 @@ function pageTimesheet(main){
 
     const pages = emps.map(emp=>{
       const entries = getEntries(emp.id, month);
-      const stats = calcAttendanceStats(entries, emp.divisionId);
+      const stats = calcAttendanceStats(entries);
       const sal = computeSalaryWithEntries(emp, entries, stats, getPayrollOverride(emp.id, month), month);
       const allDayRows = entries.map(r=>dayRowHTML(r, emp)).join('');
       const dayFoot = `<tr class="tfoot-total">
@@ -2527,7 +2491,7 @@ function pageTimesheet(main){
     };
 
     function recompute(){
-      const stats = calcAttendanceStats(entries, emp.divisionId);
+      const stats = calcAttendanceStats(entries);
       const sal = computeSalaryWithEntries(emp, entries, stats, getPayrollOverride(emp.id, month), month);
       document.getElementById('ao_'+emp.id).textContent = stats.absentDays;
       document.getElementById('lo_'+emp.id).textContent = stats.leaveDays;
@@ -2577,7 +2541,7 @@ function pageTimesheet(main){
       if(field==='remark'){
         if(val){
           Object.assign(entries[idx], {timeIn:'', break1:'', break2:'', timeOut:'', normalOT:'', fridayOT:'', phOT:''});
-        } else if(isWeekOffDate(entries[idx].date, emp.divisionId)){
+        } else if(isWeekOffDate(entries[idx].date)){
           // remark cleared back to "—" on a week-off day: stays blank
           Object.assign(entries[idx], {timeIn:'', break1:'', break2:'', timeOut:'', normalOT:'', fridayOT:'', phOT:''});
         } else {
@@ -2590,7 +2554,7 @@ function pageTimesheet(main){
       const tr = t.closest('tr');
       const rm = (entries[idx].remark||'').toUpperCase();
       tr.classList.remove('weekoff-row','absent-row','medical-row');
-      if(isWeekOffDate(entries[idx].date, emp.divisionId)) tr.classList.add('weekoff-row');
+      if(isWeekOffDate(entries[idx].date)) tr.classList.add('weekoff-row');
       else if(rm==='MEDICAL LEAVE') tr.classList.add('medical-row');
       else if(rm) tr.classList.add('absent-row');
       refreshSummary();
@@ -2606,7 +2570,7 @@ function pageTimesheet(main){
       markTouched(emp.id, month);
       const tr = container.querySelector(`tr[data-idx="${idx}"]`);
       tr.classList.remove('weekoff-row','absent-row','medical-row');
-      if(isWeekOffDate(entries[idx].date, emp.divisionId)) tr.classList.add('weekoff-row');
+      if(isWeekOffDate(entries[idx].date)) tr.classList.add('weekoff-row');
       tr.querySelectorAll('select[data-f]').forEach(sel=>{ sel.value=''; });
       tr.querySelectorAll('input[data-f]').forEach(inp=>{ inp.value = ''; });
       refreshSummary();
@@ -2654,7 +2618,7 @@ function pageTimesheet(main){
       if(!confirm(`Mark the ENTIRE month as PRESENT for ${emp.name} (${emp.code})?\n\nEvery day's remark is cleared back to blank (normal working day), and any manual Full Absent override is removed so salary auto-calculates from attendance again.`)) return;
       // 1) every entry -> blank remark, restore default working times (week-offs stay blank)
       entries.forEach(en=>{ Object.assign(en, {remark:'', timeIn:'', break1:'', break2:'', timeOut:'', normalOT:'', fridayOT:'', phOT:''}); });
-      syncWeekOffRows(entries, emp.divisionId); // fills in the default 08:00-20:00 / 2hr OT on non-week-off days
+      syncWeekOffRows(entries); // fills in the default 08:00-20:00 / 2hr OT on non-week-off days
       // 2) remove the manual all-zero override (from a prior Full Absent), if any, so this reverts cleanly
       if(DB.payroll[month]) delete DB.payroll[month][emp.id];
       markTouched(emp.id, month);
@@ -2694,7 +2658,7 @@ function pageTimesheet(main){
         const field = t.dataset.sumf;
         const val = parseFloat(t.value)||0;
         setPayrollOverrideField(emp.id, month, field, val, entries);
-        const stats = calcAttendanceStats(entries, emp.divisionId);
+        const stats = calcAttendanceStats(entries);
         const sal = computeSalaryWithEntries(emp, entries, stats, getPayrollOverride(emp.id, month), month);
         document.getElementById('total_'+emp.id).textContent = fmt(sal.totalSalary);
         save(); // debounced — was saveNow(), which wrote the whole DB on every keystroke
@@ -2836,7 +2800,7 @@ function autoOtherAllowanceHrs(empId, month){
   const v = entries.__v||0;
   const hit = __autoOtherCache.get(entries);
   if(hit && hit.v===v) return hit.val;
-  const stats = calcAttendanceStats(entries, emp.divisionId);
+  const stats = calcAttendanceStats(entries);
   const val = (stats.totalNormal||0)/2;
   __autoOtherCache.set(entries, {v, val});
   return val;
@@ -3203,7 +3167,7 @@ function computeSalary(emp, month){
     };
   }
   const entries = (DB.timesheets[emp.id] && DB.timesheets[emp.id][month]) || [];
-  const stats = calcAttendanceStats(entries, emp.divisionId);
+  const stats = calcAttendanceStats(entries);
   const override = getPayrollOverride(emp.id, month);
   const sal = computeSalaryWithEntries(emp, entries, stats, override, month);
   return Object.assign({empId: emp.id, code: emp.code, name: emp.name,
@@ -4382,79 +4346,52 @@ function pageCostCentre(main){
     const emps = f.employeeId ? [byId(DB.employees, f.employeeId)].filter(Boolean) : empList();
     if(!emps.length){ host.innerHTML = `<div class="card"><div class="empty">No employees match current filters.</div></div>`; return; }
 
+    // Which cost centers to show as columns: either just the one filtered, or every account
+    // that actually has at least one day counted across the employees in scope this month.
     const perEmp = emps.map(e=>{
       const {counts, hasTimesheet} = costBreakdown(e.id, f.month);
       return {emp:e, counts, hasTimesheet};
     });
+    let acctIds = f.accountId ? [f.accountId] : Array.from(new Set(perEmp.flatMap(x=>Object.keys(x.counts))));
+    acctIds = acctIds.filter(id=>byId(DB.accounts,id)).sort((a,b)=>accName(a).localeCompare(accName(b)));
+    if(!acctIds.length){ host.innerHTML = `<div class="card"><div class="empty">No Cost Center data found for ${monthLabel(f.month)}. No Daily Timesheet has been prepared yet for this month.</div></div>`; return; }
 
-    // If no timesheet has been prepared for anyone this month, show early message.
-    const hasAnyTimesheet = perEmp.some(x=>x.hasTimesheet && Object.keys(x.counts).length>0);
-    if(!hasAnyTimesheet){
-      host.innerHTML = `<div class="card"><div class="empty">No Cost Center data found for ${monthLabel(f.month)}. No Daily Timesheet has been prepared yet for this month.</div></div>`;
-      return;
-    }
+    const totalByAcct = {};
+    acctIds.forEach(id=>totalByAcct[id]=0);
 
-    // Build rows: one row per employee-per-cost-center so the table always
-    // grows downward and never sideways (no matter how many cost centers exist).
-    let rowsHTML = '';
-    let grandTotal = 0;
-
-    perEmp.forEach(({emp, counts, hasTimesheet}, empIdx)=>{
-      // Subtle top border between different employees for readability.
-      const sepStyle = empIdx > 0 ? 'border-top:2px solid var(--border);' : '';
-
+    const rowsHTML = perEmp.map(({emp,counts,hasTimesheet})=>{
+      // No timesheet prepared for this employee this month -> every cell stays blank,
+      // and it does not contribute anything to the column/grand totals.
       if(!hasTimesheet){
-        // No timesheet prepared — show one placeholder row.
-        rowsHTML += `<tr style="${sepStyle}">
+        return `<tr>
           <td>${emp.code}</td><td>${emp.name}</td><td>${divName(emp.divisionId)}</td>
-          <td style="color:var(--muted);">—</td><td class="right">—</td>
+          ${acctIds.map(()=>`<td class="right">—</td>`).join('')}
+          <td class="right">—</td>
         </tr>`;
-        return;
       }
+      const rowTotal = acctIds.reduce((s,id)=>s+(counts[id]||0),0);
+      acctIds.forEach(id=>{ totalByAcct[id]+=(counts[id]||0); });
+      return `<tr>
+        <td>${emp.code}</td><td>${emp.name}</td><td>${divName(emp.divisionId)}</td>
+        ${acctIds.map(id=>`<td class="right">${dashN(counts[id]||0)}</td>`).join('')}
+        <td class="right" style="font-weight:700;">${rowTotal}</td>
+      </tr>`;
+    }).join('');
 
-      let empAcctIds;
-      if(f.accountId){
-        // Cost Center filter active: show only that one cost center for this employee.
-        empAcctIds = [f.accountId];
-      } else {
-        // No filter: one row per cost center that has at least 1 day.
-        empAcctIds = Object.keys(counts).filter(id=>byId(DB.accounts,id) && (counts[id]||0)>0);
-        empAcctIds.sort((a,b)=>accName(a).localeCompare(accName(b)));
-      }
-
-      if(!empAcctIds.length){
-        // Timesheet exists but no cost center was set on any day.
-        rowsHTML += `<tr style="${sepStyle}">
-          <td>${emp.code}</td><td>${emp.name}</td><td>${divName(emp.divisionId)}</td>
-          <td style="color:var(--muted);">—</td><td class="right">—</td>
-        </tr>`;
-        return;
-      }
-
-      empAcctIds.forEach((accId, i)=>{
-        const days = counts[accId] || 0;
-        grandTotal += days;
-        rowsHTML += `<tr style="${i===0 ? sepStyle : ''}">
-          <td>${emp.code}</td>
-          <td>${emp.name}</td>
-          <td>${divName(emp.divisionId)}</td>
-          <td>${accName(accId)}</td>
-          <td class="right">${dashN(days)}</td>
-        </tr>`;
-      });
-    });
+    const grandTotal = acctIds.reduce((s,id)=>s+totalByAcct[id],0);
 
     host.innerHTML = `
       <div class="card">
         <div class="tablewrap"><table class="grid-table">
           <thead><tr>
             <th>Code</th><th>Name</th><th>Division</th>
-            <th>Cost Center</th>
-            <th class="right">No. of Days</th>
+            ${acctIds.map(id=>`<th class="right">${byId(DB.accounts,id).code}</th>`).join('')}
+            <th class="right">Total Days</th>
           </tr></thead>
           <tbody>${rowsHTML}</tbody>
           <tfoot><tr class="tfoot-total">
-            <td colspan="4">TOTAL</td>
+            <td colspan="3">TOTAL</td>
+            ${acctIds.map(id=>`<td class="right">${totalByAcct[id]}</td>`).join('')}
             <td class="right">${grandTotal}</td>
           </tr></tfoot>
         </table></div>
@@ -4771,9 +4708,8 @@ window.addEventListener('beforeunload', ()=>{ logActivity('Logout'); saveNow(); 
       await pushRemoteDB(DB);
     }
   }catch(err){
-    const msg = err?.message || err?.code || JSON.stringify(err);
-    console.error('Cloud load failed:', msg, err);
-    toast('⚠️ Cloud sync error: ' + msg);
+    console.error('Cloud load failed, continuing with local data', err);
+    toast('Offline - using data saved on this device');
   }
   logActivity('Login');
   save();
