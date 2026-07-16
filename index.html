@@ -361,6 +361,54 @@ tr:hover td{background:#f8f9fd;}
 .po-chip{display:flex;align-items:center;gap:6px;border:1.5px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:12.5px;user-select:none;}
 .po-chip input{accent-color:var(--navy);}
 .po-chip.on{border-color:var(--navy);background:#f2f6ff;}
+
+/* ── Cost Centre: Bulge Buttons ─────────────────────────────── */
+.btn-bulge{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:7px 18px;border-radius:50px;border:none;cursor:pointer;
+  font-size:13px;font-weight:600;letter-spacing:.3px;
+  box-shadow:0 4px 12px rgba(0,0,0,.18),0 1.5px 3px rgba(0,0,0,.10);
+  transform:translateY(0);
+  transition:transform .12s ease,box-shadow .12s ease;
+  user-select:none;
+}
+.btn-bulge:active{transform:translateY(2px);box-shadow:0 2px 6px rgba(0,0,0,.15);}
+.btn-bulge-blue{background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;}
+.btn-bulge-blue:hover{box-shadow:0 6px 18px rgba(37,99,235,.4),0 2px 4px rgba(0,0,0,.1);}
+.btn-bulge-green{background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;}
+.btn-bulge-green:hover{box-shadow:0 6px 18px rgba(22,163,74,.4),0 2px 4px rgba(0,0,0,.1);}
+
+/* ── Cost Centre: Pivot Table ──────────────────────────────── */
+.cc-pivot-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+.cc-pivot-table th{background:var(--navy);color:#fff;padding:6px 8px;font-size:11.5px;white-space:nowrap;}
+.cc-pivot-table td{padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:middle;}
+.cc-pivot-table .right{text-align:right;}
+.cc-pivot-table .cc-cell{font-weight:600;color:var(--navy);}
+.cc-pivot-table tr.cc-first-row td{border-top:2px solid #c8d6f0;background:#f8faff;}
+.cc-pivot-table tr.cc-sub-row td{background:#fff;}
+.cc-pivot-table tr.cc-first-row td[rowspan]{background:#eef3fb;font-weight:500;}
+.cc-pivot-table tfoot td{background:#f1f5f9;font-size:12px;padding:6px 8px;border-top:2px solid var(--navy);}
+.cc-print-card{padding:12px 16px;}
+.cc-print-header{display:none;}
+
+/* ── Cost Centre: A4 Portrait Print ───────────────────────── */
+@media print{
+  body.page-costcenter #sidebar,
+  body.page-costcenter .no-print{ display:none!important; }
+  body.page-costcenter #main{ padding:0!important; margin:0!important; }
+  @page{ size:A4 portrait; margin:10mm 12mm; }
+  body.page-costcenter .cc-print-card{
+    box-shadow:none!important;border:none!important;
+    padding:0!important;margin:0!important;
+  }
+  body.page-costcenter .cc-print-header{ display:block!important;margin-bottom:8px; }
+  body.page-costcenter .cc-print-title{ font-size:14px;font-weight:700;color:#1e3a5f; }
+  body.page-costcenter .cc-print-sub{ font-size:11px;color:#555;margin-top:2px; }
+  body.page-costcenter .cc-pivot-table{ font-size:10px;width:100%; }
+  body.page-costcenter .cc-pivot-table th{ font-size:10px;padding:4px 6px; }
+  body.page-costcenter .cc-pivot-table td{ padding:3px 6px; }
+  body.page-costcenter .card{ box-shadow:none!important;border:none!important;margin:0!important;padding:0!important; }
+}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
@@ -745,6 +793,9 @@ function renderPage(){
     salary: pageSalary, wagecard: pageWageCard, costcenter: pageCostCentre, settings: pageSettings
   };
   main.innerHTML = '';
+  // Body class for page-scoped print CSS
+  document.body.className = document.body.className.replace(/\bpage-\S+/g,'').trim();
+  document.body.classList.add('page-'+currentPage);
   (renderers[currentPage]||pageDashboard)(main);
   // Maintenance banner sits above every page except Settings (where it's switched off).
   if(isMaintenanceOn() && currentPage!=='settings'){
@@ -4325,7 +4376,11 @@ function pageCostCentre(main){
           <div class="fitem"><label>Employee</label><select id="ccEmp"><option value="">— All employees in scope —</option>${emps.map(e=>`<option value="${e.id}" ${f.employeeId===e.id?'selected':''}>${e.code} - ${e.name}</option>`).join('')}</select></div>
           <div class="fitem"><label>Cost Center</label><select id="ccAcct"><option value="">All</option>${DB.accounts.map(a=>`<option value="${a.id}" ${f.accountId===a.id?'selected':''}>${a.code}${a.name?' - '+a.name:''}</option>`).join('')}</select></div>
         </div>
-        <p class="smallnote">${emps.length} employee(s) match current filters, for ${monthLabel(f.month)} (${daysInMonth(f.month)} days).</p>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;">
+          <p class="smallnote" style="margin:0;">${emps.length} employee(s) match current filters, for ${monthLabel(f.month)} (${daysInMonth(f.month)} days).</p>
+          <button id="ccPrintBtn" class="btn-bulge btn-bulge-blue" onclick="window.print()">🖨 Print</button>
+          <button id="ccExcelBtn" class="btn-bulge btn-bulge-green">📥 Save to Excel</button>
+        </div>
       </div>
       <div id="ccResults"></div>
     `;
@@ -4338,6 +4393,29 @@ function pageCostCentre(main){
     document.getElementById('ccEmp').onchange=(e)=>{f.employeeId=e.target.value; renderResults();};
     document.getElementById('ccAcct').onchange=(e)=>{f.accountId=e.target.value; renderResults();};
     renderResults();
+    // Wire Excel button after DOM is ready
+    setTimeout(()=>{
+      const xBtn = document.getElementById('ccExcelBtn');
+      if(xBtn) xBtn.onclick = exportCCExcel;
+    },0);
+  }
+
+  function exportCCExcel(){
+    const emps = f.employeeId ? [byId(DB.employees, f.employeeId)].filter(Boolean) : empList();
+    const perEmp = emps.map(e=>{ const {counts,hasTimesheet}=costBreakdown(e.id,f.month); return {emp:e,counts,hasTimesheet}; });
+    // Build pivoted rows: one row per employee+costcenter combination
+    const rows = [['Code','Name','Division','Cost Center','No Of Days']];
+    perEmp.forEach(({emp,counts,hasTimesheet})=>{
+      if(!hasTimesheet){ rows.push([emp.code,emp.name,divName(emp.divisionId),'—','—']); return; }
+      const usedAccts = Object.keys(counts).filter(id=>byId(DB.accounts,id));
+      if(!usedAccts.length){ rows.push([emp.code,emp.name,divName(emp.divisionId),'—','—']); return; }
+      usedAccts.sort((a,b)=>accName(a).localeCompare(accName(b)));
+      usedAccts.forEach(id=>{ rows.push([emp.code,emp.name,divName(emp.divisionId),(byId(DB.accounts,id)||{}).code||id,counts[id]||0]); });
+    });
+    let csv = rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\r\n');
+    const blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+    const a = document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download = `CostCentre_${f.month}.csv`; a.click();
   }
 
   function renderResults(){
@@ -4346,55 +4424,68 @@ function pageCostCentre(main){
     const emps = f.employeeId ? [byId(DB.employees, f.employeeId)].filter(Boolean) : empList();
     if(!emps.length){ host.innerHTML = `<div class="card"><div class="empty">No employees match current filters.</div></div>`; return; }
 
-    // Which cost centers to show as columns: either just the one filtered, or every account
-    // that actually has at least one day counted across the employees in scope this month.
     const perEmp = emps.map(e=>{
       const {counts, hasTimesheet} = costBreakdown(e.id, f.month);
       return {emp:e, counts, hasTimesheet};
     });
-    let acctIds = f.accountId ? [f.accountId] : Array.from(new Set(perEmp.flatMap(x=>Object.keys(x.counts))));
-    acctIds = acctIds.filter(id=>byId(DB.accounts,id)).sort((a,b)=>accName(a).localeCompare(accName(b)));
-    if(!acctIds.length){ host.innerHTML = `<div class="card"><div class="empty">No Cost Center data found for ${monthLabel(f.month)}. No Daily Timesheet has been prepared yet for this month.</div></div>`; return; }
 
-    const totalByAcct = {};
-    acctIds.forEach(id=>totalByAcct[id]=0);
-
-    const rowsHTML = perEmp.map(({emp,counts,hasTimesheet})=>{
-      // No timesheet prepared for this employee this month -> every cell stays blank,
-      // and it does not contribute anything to the column/grand totals.
+    // PIVOTED layout: one row per employee+cost center combination
+    let rowsHTML = '';
+    let grandTotal = 0;
+    perEmp.forEach(({emp,counts,hasTimesheet})=>{
       if(!hasTimesheet){
-        return `<tr>
-          <td>${emp.code}</td><td>${emp.name}</td><td>${divName(emp.divisionId)}</td>
-          ${acctIds.map(()=>`<td class="right">—</td>`).join('')}
-          <td class="right">—</td>
-        </tr>`;
+        rowsHTML += `<tr><td>${emp.code}</td><td>${emp.name}</td><td>${divName(emp.divisionId)}</td><td class="cc-cell">—</td><td class="right">—</td></tr>`;
+        return;
       }
-      const rowTotal = acctIds.reduce((s,id)=>s+(counts[id]||0),0);
-      acctIds.forEach(id=>{ totalByAcct[id]+=(counts[id]||0); });
-      return `<tr>
-        <td>${emp.code}</td><td>${emp.name}</td><td>${divName(emp.divisionId)}</td>
-        ${acctIds.map(id=>`<td class="right">${dashN(counts[id]||0)}</td>`).join('')}
-        <td class="right" style="font-weight:700;">${rowTotal}</td>
-      </tr>`;
-    }).join('');
+      const usedAccts = Object.keys(counts).filter(id=>byId(DB.accounts,id));
+      if(!usedAccts.length){
+        rowsHTML += `<tr><td>${emp.code}</td><td>${emp.name}</td><td>${divName(emp.divisionId)}</td><td class="cc-cell">—</td><td class="right">—</td></tr>`;
+        return;
+      }
+      usedAccts.sort((a,b)=>accName(a).localeCompare(accName(b)));
+      usedAccts.forEach((id,i)=>{
+        const days = counts[id]||0;
+        grandTotal += days;
+        const acct = byId(DB.accounts,id);
+        if(i===0){
+          rowsHTML += `<tr class="cc-first-row">
+            <td rowspan="${usedAccts.length}">${emp.code}</td>
+            <td rowspan="${usedAccts.length}">${emp.name}</td>
+            <td rowspan="${usedAccts.length}">${divName(emp.divisionId)}</td>
+            <td class="cc-cell">${acct?acct.code:id}</td>
+            <td class="right">${days}</td>
+          </tr>`;
+        } else {
+          rowsHTML += `<tr class="cc-sub-row">
+            <td class="cc-cell">${acct?acct.code:id}</td>
+            <td class="right">${days}</td>
+          </tr>`;
+        }
+      });
+    });
 
-    const grandTotal = acctIds.reduce((s,id)=>s+totalByAcct[id],0);
+    if(!rowsHTML){ host.innerHTML = `<div class="card"><div class="empty">No Cost Center data found for ${monthLabel(f.month)}. No Daily Timesheet has been prepared yet for this month.</div></div>`; return; }
 
     host.innerHTML = `
-      <div class="card">
-        <div class="tablewrap"><table class="grid-table">
+      <div class="card cc-print-card">
+        <div class="cc-print-header">
+          <div class="cc-print-title">${coName()||'Berkeley Services'} — Cost Centre Details</div>
+          <div class="cc-print-sub">${monthLabel(f.month)}${f.division?' | '+divName(f.division):' | All Divisions'}</div>
+        </div>
+        <table class="cc-pivot-table">
           <thead><tr>
-            <th>Code</th><th>Name</th><th>Division</th>
-            ${acctIds.map(id=>`<th class="right">${byId(DB.accounts,id).code}</th>`).join('')}
-            <th class="right">Total Days</th>
+            <th style="width:70px;">Code</th>
+            <th>Name</th>
+            <th style="width:80px;">Division</th>
+            <th style="width:90px;">Cost Center</th>
+            <th style="width:80px;" class="right">No Of Days</th>
           </tr></thead>
           <tbody>${rowsHTML}</tbody>
           <tfoot><tr class="tfoot-total">
-            <td colspan="3">TOTAL</td>
-            ${acctIds.map(id=>`<td class="right">${totalByAcct[id]}</td>`).join('')}
+            <td colspan="4" style="text-align:right;padding-right:8px;font-weight:700;">GRAND TOTAL</td>
             <td class="right">${grandTotal}</td>
           </tr></tfoot>
-        </table></div>
+        </table>
       </div>
     `;
   }
