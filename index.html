@@ -4352,7 +4352,13 @@ function pageCostCentre(main){
     const emps = empList();
     if(f.employeeId && !emps.find(e=>e.id===f.employeeId)) f.employeeId='';
     main.innerHTML = `
-      <div class="pageheader"><div><h2>Cost Centre Details</h2><div class="sub">Per-employee day counts by Cost Center for a selected month — driven by the Cost Center set on each day in Daily Timesheet</div></div></div>
+      <div class="pageheader">
+        <div><h2>Cost Centre Details</h2><div class="sub">Per-employee day counts by Cost Center for a selected month — driven by the Cost Center set on each day in Daily Timesheet</div></div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" id="ccPrintBtn">🖨 Print / PDF</button>
+          <button class="btn btn-gold" id="ccExcelBtn">📊 Export Excel</button>
+        </div>
+      </div>
       <div class="card no-print">
         <div class="filters">
           ${monthYearPickerHTML('ccMonth', f.month)}
@@ -4373,6 +4379,8 @@ function pageCostCentre(main){
     };
     document.getElementById('ccEmp').onchange=(e)=>{f.employeeId=e.target.value; renderResults();};
     document.getElementById('ccAcct').onchange=(e)=>{f.accountId=e.target.value; renderResults();};
+    document.getElementById('ccPrintBtn').onclick = doCCPrint;
+    document.getElementById('ccExcelBtn').onclick = doCCExcel;
     renderResults();
   }
 
@@ -4462,10 +4470,107 @@ function pageCostCentre(main){
     `;
   }
 
+  /* ---- EXCEL EXPORT ---- */
+  function doCCExcel(){
+    const emps = f.employeeId ? [byId(DB.employees,f.employeeId)].filter(Boolean) : empList();
+    if(!emps.length){ toast('No data to export'); return; }
+    const perEmp = emps.map(e=>{ const {counts,hasTimesheet}=costBreakdown(e.id,f.month); return {emp:e,counts,hasTimesheet}; });
+    const hasAny = perEmp.some(x=>x.hasTimesheet && Object.keys(x.counts).length>0);
+    if(!hasAny){ toast('No Cost Center data found for '+monthLabel(f.month)); return; }
+
+    const rows = [['Code','Name','Division','Cost Center','No. of Days']];
+    let grandTotal = 0;
+    perEmp.forEach(({emp,counts,hasTimesheet})=>{
+      if(!hasTimesheet){ rows.push([emp.code, emp.name, divName(emp.divisionId), '—', '']); return; }
+      let ids = f.accountId ? [f.accountId] : Object.keys(counts).filter(id=>byId(DB.accounts,id)&&(counts[id]||0)>0);
+      ids.sort((a,b)=>accName(a).localeCompare(accName(b)));
+      if(!ids.length){ rows.push([emp.code, emp.name, divName(emp.divisionId), '—', '']); return; }
+      ids.forEach(accId=>{
+        const days = counts[accId]||0; grandTotal += days;
+        rows.push([emp.code, emp.name, divName(emp.divisionId), accName(accId), days]);
+      });
+    });
+    rows.push(['','','','TOTAL', grandTotal]);
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{wch:10},{wch:28},{wch:14},{wch:22},{wch:11}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Cost Centre');
+    const fname = 'CostCentre_'+monthLabel(f.month).replace(/\s+/g,'-')+'.xlsx';
+    XLSX.writeFile(wb, fname);
+    toast('Excel saved — '+fname);
+  }
+
+  /* ---- PRINT / PDF ---- */
+  function doCCPrint(){
+    const emps = f.employeeId ? [byId(DB.employees,f.employeeId)].filter(Boolean) : empList();
+    if(!emps.length){ toast('No data to print'); return; }
+    const perEmp = emps.map(e=>{ const {counts,hasTimesheet}=costBreakdown(e.id,f.month); return {emp:e,counts,hasTimesheet}; });
+    const hasAny = perEmp.some(x=>x.hasTimesheet && Object.keys(x.counts).length>0);
+    if(!hasAny){ toast('No data to print'); return; }
+
+    let rowsHTML = ''; let grandTotal = 0;
+    perEmp.forEach(({emp,counts,hasTimesheet},empIdx)=>{
+      const firstSep = empIdx>0 ? ' class="sep"' : '';
+      if(!hasTimesheet){
+        rowsHTML += `<tr${firstSep}><td>${emp.code}</td><td>${emp.name}</td><td>${divName(emp.divisionId)}</td><td>—</td><td class="r">—</td></tr>`;
+        return;
+      }
+      let ids = f.accountId ? [f.accountId] : Object.keys(counts).filter(id=>byId(DB.accounts,id)&&(counts[id]||0)>0);
+      ids.sort((a,b)=>accName(a).localeCompare(accName(b)));
+      if(!ids.length){
+        rowsHTML += `<tr${firstSep}><td>${emp.code}</td><td>${emp.name}</td><td>${divName(emp.divisionId)}</td><td>—</td><td class="r">—</td></tr>`;
+        return;
+      }
+      ids.forEach((accId,i)=>{
+        const days = counts[accId]||0; grandTotal += days;
+        rowsHTML += `<tr${i===0?firstSep:''}><td>${emp.code}</td><td>${emp.name}</td><td>${divName(emp.divisionId)}</td><td>${accName(accId)}</td><td class="r">${days}</td></tr>`;
+      });
+    });
+
+    const heading = docHeading();
+    const divLabel = f.division ? divName(f.division) : 'All Divisions';
+    const w = window.open('','_blank','width=900,height=700');
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Cost Centre Details</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',Arial,sans-serif;font-size:9.5pt;color:#000;background:#fff;}
+@page{size:A4 portrait;margin:14mm 10mm 12mm 10mm;}
+.hdr{margin-bottom:8px;padding-bottom:6px;border-bottom:2.5px solid #0f2044;}
+.hdr h1{font-size:12pt;font-weight:700;color:#0f2044;letter-spacing:.2px;}
+.meta{font-size:8pt;color:#444;margin-top:3px;display:flex;gap:22px;flex-wrap:wrap;}
+table{width:100%;border-collapse:collapse;font-size:8.5pt;table-layout:fixed;}
+col.c1{width:9%;}col.c2{width:34%;}col.c3{width:16%;}col.c4{width:31%;}col.c5{width:10%;}
+th{background:#0f2044;color:#fff;padding:5px 6px;text-align:left;font-weight:600;font-size:8pt;}
+th.r,td.r{text-align:right;}
+td{padding:3.5px 6px;border-bottom:0.5px solid #dde2ee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+tr.sep td{border-top:1.5px solid #b5bed4;}
+tfoot td{background:#e8edf7;font-weight:700;border-top:2px solid #0f2044;padding:5px 6px;}
+.foot{margin-top:6px;font-size:7.5pt;color:#888;text-align:right;}
+</style></head><body>
+<div class="hdr">
+  <h1>${heading} — Cost Centre Details</h1>
+  <div class="meta">
+    <span>Month: <b>${monthLabel(f.month)}</b></span>
+    <span>Division: <b>${divLabel}</b></span>
+    <span>Printed: <b>${new Date().toLocaleDateString('en-GB')}</b></span>
+  </div>
+</div>
+<table>
+<colgroup><col class="c1"><col class="c2"><col class="c3"><col class="c4"><col class="c5"></colgroup>
+<thead><tr><th>Code</th><th>Name</th><th>Division</th><th>Cost Center</th><th class="r">Days</th></tr></thead>
+<tbody>${rowsHTML}</tbody>
+<tfoot><tr><td colspan="4">TOTAL</td><td class="r">${grandTotal}</td></tr></tfoot>
+</table>
+<div class="foot">Payroll &amp; Attendance System — ${heading}</div>
+</body></html>`);
+    w.document.close();
+    w.focus();
+    setTimeout(()=>{ w.print(); }, 500);
+  }
+
   renderInner();
 }
-
-function pageSettings(main){
   const woDays = DB.settings.weekOffDays||[];
   main.innerHTML = `
     <div class="pageheader"><div><h2>Settings &amp; Backup</h2><div class="sub">Configure payroll rates and manage your offline data</div></div></div>
