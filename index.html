@@ -4571,6 +4571,8 @@ tfoot td{background:#e8edf7;font-weight:700;border-top:2px solid #0f2044;padding
 
   renderInner();
 }
+
+function pageSettings(main){
   const woDays = DB.settings.weekOffDays||[];
   main.innerHTML = `
     <div class="pageheader"><div><h2>Settings &amp; Backup</h2><div class="sub">Configure payroll rates and manage your offline data</div></div></div>
