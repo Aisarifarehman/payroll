@@ -492,7 +492,12 @@ async function pushRemoteDB(dbObj){
         .upsert({id: ROW_ID, data: dbObj, updated_at: new Date().toISOString(), updated_by: CLIENT_ID})
         .select('updated_at'));
     }
-    if(error){ console.error('Remote save failed', error); return; }
+    if(error){
+      const msg = error?.message || error?.code || JSON.stringify(error);
+      console.error('Remote save failed:', msg, error);
+      toast('⚠️ Cloud save error: ' + msg);
+      return;
+    }
     if(rows && rows.length){
       // Store the server's own returned timestamp string (not our locally computed one) so the
       // next comparison is always byte-for-byte what Postgres actually has, avoiding any
@@ -504,7 +509,10 @@ async function pushRemoteDB(dbObj){
       // whatever they just changed, rather than lose it silently.
       await pullRemoteAfterConflict();
     }
-  }catch(err){ console.error('Remote save failed', err); }
+  }catch(err){
+    const msg = err?.message || err?.code || JSON.stringify(err);
+    console.error('Remote save failed:', msg, err);
+  }
 }
 async function pullRemoteAfterConflict(){
   try{
@@ -4346,52 +4354,79 @@ function pageCostCentre(main){
     const emps = f.employeeId ? [byId(DB.employees, f.employeeId)].filter(Boolean) : empList();
     if(!emps.length){ host.innerHTML = `<div class="card"><div class="empty">No employees match current filters.</div></div>`; return; }
 
-    // Which cost centers to show as columns: either just the one filtered, or every account
-    // that actually has at least one day counted across the employees in scope this month.
     const perEmp = emps.map(e=>{
       const {counts, hasTimesheet} = costBreakdown(e.id, f.month);
       return {emp:e, counts, hasTimesheet};
     });
-    let acctIds = f.accountId ? [f.accountId] : Array.from(new Set(perEmp.flatMap(x=>Object.keys(x.counts))));
-    acctIds = acctIds.filter(id=>byId(DB.accounts,id)).sort((a,b)=>accName(a).localeCompare(accName(b)));
-    if(!acctIds.length){ host.innerHTML = `<div class="card"><div class="empty">No Cost Center data found for ${monthLabel(f.month)}. No Daily Timesheet has been prepared yet for this month.</div></div>`; return; }
 
-    const totalByAcct = {};
-    acctIds.forEach(id=>totalByAcct[id]=0);
+    // If no timesheet has been prepared for anyone this month, show early message.
+    const hasAnyTimesheet = perEmp.some(x=>x.hasTimesheet && Object.keys(x.counts).length>0);
+    if(!hasAnyTimesheet){
+      host.innerHTML = `<div class="card"><div class="empty">No Cost Center data found for ${monthLabel(f.month)}. No Daily Timesheet has been prepared yet for this month.</div></div>`;
+      return;
+    }
 
-    const rowsHTML = perEmp.map(({emp,counts,hasTimesheet})=>{
-      // No timesheet prepared for this employee this month -> every cell stays blank,
-      // and it does not contribute anything to the column/grand totals.
+    // Build rows: one row per employee-per-cost-center so the table always
+    // grows downward and never sideways (no matter how many cost centers exist).
+    let rowsHTML = '';
+    let grandTotal = 0;
+
+    perEmp.forEach(({emp, counts, hasTimesheet}, empIdx)=>{
+      // Subtle top border between different employees for readability.
+      const sepStyle = empIdx > 0 ? 'border-top:2px solid var(--border);' : '';
+
       if(!hasTimesheet){
-        return `<tr>
+        // No timesheet prepared — show one placeholder row.
+        rowsHTML += `<tr style="${sepStyle}">
           <td>${emp.code}</td><td>${emp.name}</td><td>${divName(emp.divisionId)}</td>
-          ${acctIds.map(()=>`<td class="right">—</td>`).join('')}
-          <td class="right">—</td>
+          <td style="color:var(--muted);">—</td><td class="right">—</td>
         </tr>`;
+        return;
       }
-      const rowTotal = acctIds.reduce((s,id)=>s+(counts[id]||0),0);
-      acctIds.forEach(id=>{ totalByAcct[id]+=(counts[id]||0); });
-      return `<tr>
-        <td>${emp.code}</td><td>${emp.name}</td><td>${divName(emp.divisionId)}</td>
-        ${acctIds.map(id=>`<td class="right">${dashN(counts[id]||0)}</td>`).join('')}
-        <td class="right" style="font-weight:700;">${rowTotal}</td>
-      </tr>`;
-    }).join('');
 
-    const grandTotal = acctIds.reduce((s,id)=>s+totalByAcct[id],0);
+      let empAcctIds;
+      if(f.accountId){
+        // Cost Center filter active: show only that one cost center for this employee.
+        empAcctIds = [f.accountId];
+      } else {
+        // No filter: one row per cost center that has at least 1 day.
+        empAcctIds = Object.keys(counts).filter(id=>byId(DB.accounts,id) && (counts[id]||0)>0);
+        empAcctIds.sort((a,b)=>accName(a).localeCompare(accName(b)));
+      }
+
+      if(!empAcctIds.length){
+        // Timesheet exists but no cost center was set on any day.
+        rowsHTML += `<tr style="${sepStyle}">
+          <td>${emp.code}</td><td>${emp.name}</td><td>${divName(emp.divisionId)}</td>
+          <td style="color:var(--muted);">—</td><td class="right">—</td>
+        </tr>`;
+        return;
+      }
+
+      empAcctIds.forEach((accId, i)=>{
+        const days = counts[accId] || 0;
+        grandTotal += days;
+        rowsHTML += `<tr style="${i===0 ? sepStyle : ''}">
+          <td>${emp.code}</td>
+          <td>${emp.name}</td>
+          <td>${divName(emp.divisionId)}</td>
+          <td>${accName(accId)}</td>
+          <td class="right">${dashN(days)}</td>
+        </tr>`;
+      });
+    });
 
     host.innerHTML = `
       <div class="card">
         <div class="tablewrap"><table class="grid-table">
           <thead><tr>
             <th>Code</th><th>Name</th><th>Division</th>
-            ${acctIds.map(id=>`<th class="right">${byId(DB.accounts,id).code}</th>`).join('')}
-            <th class="right">Total Days</th>
+            <th>Cost Center</th>
+            <th class="right">No. of Days</th>
           </tr></thead>
           <tbody>${rowsHTML}</tbody>
           <tfoot><tr class="tfoot-total">
-            <td colspan="3">TOTAL</td>
-            ${acctIds.map(id=>`<td class="right">${totalByAcct[id]}</td>`).join('')}
+            <td colspan="4">TOTAL</td>
             <td class="right">${grandTotal}</td>
           </tr></tfoot>
         </table></div>
@@ -4708,8 +4743,9 @@ window.addEventListener('beforeunload', ()=>{ logActivity('Logout'); saveNow(); 
       await pushRemoteDB(DB);
     }
   }catch(err){
-    console.error('Cloud load failed, continuing with local data', err);
-    toast('Offline - using data saved on this device');
+    const msg = err?.message || err?.code || JSON.stringify(err);
+    console.error('Cloud load failed:', msg, err);
+    toast('⚠️ Cloud sync error: ' + msg);
   }
   logActivity('Login');
   save();
