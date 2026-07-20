@@ -5361,120 +5361,164 @@ function bvcOpenEmpTimesheet(emp){
   bvcAddLog('Opened ' + emp.code + ' — ' + emp.name);
 }
 
-/* ── COMMAND PARSER ───────────────────────────────────────── */
-/*
-  Returns: { type, ... } or null (= silently ignore)
-  Types: 'stop' | 'navigate' | 'openEmp' | 'attendance' | 'overtime' | 'allowance'
-*/
-function bvcParse(text){
-  const low = text.toLowerCase().trim();
+/* ── COMMAND PARSER v4 ────────────────────────────────────── */
+/* Normalize speech quirks: "time sheet"→"timesheet", "centre"→"center",
+   "l 0 2 1"→"l021" style gaps are handled by the code regex itself. */
+function bvcNorm(text){
+  return text.toLowerCase().trim()
+    .replace(/time\s*sheets?/g,'timesheet')
+    .replace(/centres?/g,'center')
+    .replace(/over\s*time/g,'overtime')
+    .replace(/week\s*end/g,'weekend');
+}
 
-  /* ── STOP ── */
-  if(/\b(stop listening|stop voice|voice off|mute voice|stop)\b/.test(low))
-    return { type:'stop' };
+/* Flat page phrase list, LONGEST first so "cost center details" wins over "cost center" */
+const PAGE_PHRASES = (()=>{ 
+  const flat=[];
+  PAGE_MAP.forEach(e=>e.words.forEach(w=>flat.push({w:bvcNorm(w), page:e.page})));
+  flat.sort((a,b)=>b.w.length-a.w.length);
+  return flat;
+})();
 
-  /* ── NAVIGATE (must contain a nav trigger word AND open/go/show) ──
-     OR just the page name alone is enough for clear page names */
-  const navTrigger = /\b(open|go to|show|take me to|navigate to|switch to)\b/.test(low);
-  for(const entry of PAGE_MAP){
-    for(const w of entry.words){
-      if(low.includes(w)){
-        /* Employee-related words need a trigger so "employee L021" doesn't nav */
-        if(['employee','employees','staff','people'].includes(w) && !navTrigger) continue;
-        /* If there's ALSO an employee code, this is "open L021 timesheet" — handle below */
-        const codeM = text.match(/\b([A-Za-z]{1,4}\s?\d{1,6}|LDRV)\b/i);
-        if(codeM && (w==='timesheet'||w==='daily timesheet'||w==='attendance')){
-          const emp = bvcFindEmp(codeM[1]);
-          if(emp) return { type:'openEmp', employee:emp };
-          /* code not found — still navigate to timesheet page */
-          return { type:'navigate', page:entry.page };
-        }
-        return { type:'navigate', page:entry.page };
-      }
-    }
-  }
-
-  /* ── OPEN EMPLOYEE by code  e.g. "open L021", "show me C12659" ──
-     Requires open/show trigger + a code  */
-  if(navTrigger || /\b(open|show|pull up|load)\b/.test(low)){
-    const codeM = text.match(/\b([A-Za-z]{1,4}\s?\d{1,6}|LDRV)\b/i);
-    if(codeM){
-      const emp = bvcFindEmp(codeM[1]);
-      if(emp) return { type:'openEmp', employee:emp };
-    }
-  }
-
-  /* ── Everything below needs an employee code ─────────────── */
-  const codeM = text.match(/\b([A-Za-z]{1,4}\s?\d{1,6}|LDRV)\b/i);
-  if(!codeM) return null; // no code → silently ignore
-
-  const empCode = codeM[1].replace(/\s+/g,'').toUpperCase();
-  const emp     = bvcFindEmp(empCode);
-  if(!emp) return null; // unknown code → silently ignore (don't show error)
-
-  const month = bvcMonth();
-  const datePh = (low.match(/\b(today|yesterday|(?:on\s+)?(?:the\s+)?\d{1,2}(?:st|nd|rd|th)?)\b/)||[])[0]||'today';
-  const date   = bvcResolveDate(datePh, month);
-
-  /* ── FULL ABSENT / FULL PRESENT ── */
-  for(const entry of REMARK_MAP){
-    for(const w of entry.words){
-      if(low.includes(w)){
-        if(entry.remark==='__FULL_ABSENT__') return { type:'fullAbsent', employee:emp, month };
-        if(entry.remark==='__FULL_PRESENT__') return { type:'fullPresent', employee:emp, month };
-        /* Regular attendance */
-        return { type:'attendance', employee:emp, month, date, remark:entry.remark };
-      }
-    }
-  }
-
-  /* ── OVERTIME — must have a number ── */
-  const numM = low.match(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?)?/);
-  if(numM && /\b(overtime|over time|\bot\b)\b/.test(low)){
-    let field = 'normalOT';
-    for(const entry of OT_MAP){
-      if(entry.words.some(w=>low.includes(w))){ field=entry.field; break; }
-    }
-    return { type:'overtime', employee:emp, month, date, field, hours:parseFloat(numM[1]) };
-  }
-
-  /* ── ALLOWANCE — must have a number ── */
-  if(numM){
-    for(const entry of ALLOW_MAP){
-      if(entry.words.some(w=>low.includes(w))){
-        return { type:'allowance', employee:emp, month, key:entry.key, value:parseFloat(numM[1]) };
-      }
-    }
-  }
-
-  /* Nothing matched — silently ignore */
+/* Which employee's sheet is open on screen right now (single-employee timesheet view) */
+function bvcContextEmp(){
+  const bodies = document.querySelectorAll('.ts-body[data-emp]');
+  if(bodies.length===1) return byId(DB.employees, bodies[0].dataset.emp) || null;
   return null;
 }
 
-/* ── EXECUTOR ─────────────────────────────────────────────── */
-function bvcExecute(act){
-  if(!act) return; // silently ignore
+/*
+  Returns action or null (= silently ignore).
+  Types: stop | navigate | openEmp | viewEmp | editEmp |
+         fullAbsent | fullPresent | attendance | overtime | allowance
+*/
+function bvcParse(text){
+  const low = bvcNorm(text);
 
-  if(act.type==='stop'){
-    bvcStop();
-    bvcAddLog('Voice control stopped');
-    return;
+  /* STOP */
+  if(/\b(stop listening|stop voice|voice off|mute voice|stop)\b/.test(low))
+    return { type:'stop' };
+
+  /* Employee code anywhere in the sentence */
+  const codeM = text.match(/\b([A-Za-z]{1,4}\s?\d{1,6}|LDRV)\b/i);
+  const emp   = codeM ? bvcFindEmp(codeM[1]) : null;
+
+  const navTrigger  = /\b(open|go to|goto|show|take me to|navigate to|switch to|pull up|load)\b/.test(low);
+  const editTrigger = /\b(edit|update|change|modify)\b/.test(low);
+  const viewTrigger = /\b(view|preview|profile|details|see)\b/.test(low);
+
+  /* NAVIGATE — longest page phrase first */
+  for(const p of PAGE_PHRASES){
+    if(low.includes(p.w)){
+      /* employee-ish words need a trigger so "employee L021 absent" doesn't nav */
+      if(['employee','employees','staff','people'].includes(p.w) && !navTrigger) continue;
+      /* "open L021 timesheet" → open that employee's sheet directly */
+      if(emp && (p.page==='timesheet')) return { type:'openEmp', employee:emp };
+      return { type:'navigate', page:p.page };
+    }
   }
+
+  /* EDIT / VIEW employee — "edit L003", "view L021", or plain code on Employees page */
+  if(emp && editTrigger) return { type:'editEmp', employee:emp };
+  if(emp && viewTrigger) return { type:'viewEmp', employee:emp };
+
+  /* Which employee do the data commands apply to?
+     Spoken code wins; otherwise the sheet already open on screen. */
+  const target = emp || bvcContextEmp();
+
+  if(target){
+    const month = bvcMonth();
+    const datePh = (low.match(/\b(today|yesterday|(?:on\s+)?(?:the\s+)?\d{1,2}(?:st|nd|rd|th)?)\b/)||[])[0]||'today';
+    const date   = bvcResolveDate(datePh, month);
+
+    /* FULL ABSENT / FULL PRESENT + attendance remarks */
+    for(const entry of REMARK_MAP){
+      for(const w of entry.words){
+        if(low.includes(w)){
+          if(entry.remark==='__FULL_ABSENT__')  return { type:'fullAbsent',  employee:target, month };
+          if(entry.remark==='__FULL_PRESENT__') return { type:'fullPresent', employee:target, month };
+          return { type:'attendance', employee:target, month, date, remark:entry.remark };
+        }
+      }
+    }
+
+    /* OVERTIME — needs a number */
+    const numM = low.match(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?)?(?!\d)/);
+    if(numM && /\b(overtime|\bot\b)\b/.test(low)){
+      let field='normalOT';
+      for(const e2 of OT_MAP){ if(e2.words.some(w=>low.includes(bvcNorm(w)))){ field=e2.field; break; } }
+      return { type:'overtime', employee:target, month, date, field, hours:parseFloat(numM[1]) };
+    }
+
+    /* ALLOWANCE — needs a number */
+    if(numM){
+      for(const e2 of ALLOW_MAP){
+        if(e2.words.some(w=>low.includes(w)))
+          return { type:'allowance', employee:target, month, key:e2.key, value:parseFloat(numM[1]) };
+      }
+    }
+  }
+
+  /* Plain code alone (or with open trigger): context decides what "open" means */
+  if(emp){
+    if(currentPage==='employees') return { type:'viewEmp', employee:emp };
+    return { type:'openEmp', employee:emp };
+  }
+
+  return null; /* not understood → silently ignore */
+}
+
+/* ── EXECUTOR ─────────────────────────────────────────────── */
+function bvcClickEmpBtn(emp, kind){
+  /* kind: 'view' | 'edit' — clicks the row button on the Employees page */
+  const tryClick = ()=>{
+    const btn=document.querySelector('[data-'+kind+'="'+emp.id+'"]');
+    if(btn){ btn.click(); return true; }
+    return false;
+  };
+  const searchThenClick = ()=>{
+    if(tryClick()) return;
+    /* row may be filtered out — put the code in the search box, re-render, retry */
+    const s=document.getElementById('searchEmp');
+    if(s){ s.value=emp.code; s.dispatchEvent(new Event('input',{bubbles:true})); }
+    setTimeout(tryClick, 200);
+  };
+  if(currentPage!=='employees'){
+    currentPage='employees'; renderNav(); renderPage();
+    setTimeout(searchThenClick, 100);
+  } else {
+    searchThenClick();
+  }
+}
+
+function bvcExecute(act){
+  if(!act) return; /* silently ignore */
+
+  if(act.type==='stop'){ bvcStop(); bvcAddLog('Voice control stopped'); return; }
 
   if(act.type==='navigate'){
-    currentPage = act.page;
-    renderNav(); renderPage();
-    bvcShowToast(`✅ Opened ${act.page}`, 'success');
-    bvcAddLog(`Navigated to ${act.page}`);
+    currentPage=act.page; renderNav(); renderPage();
+    bvcShowToast('\u2705 Opened '+act.page,'success');
+    bvcAddLog('Navigated to '+act.page);
     return;
   }
 
-  if(act.type==='openEmp'){
-    bvcOpenEmpTimesheet(act.employee);
+  if(act.type==='openEmp'){ bvcOpenEmpTimesheet(act.employee); return; }
+
+  if(act.type==='viewEmp'){
+    bvcClickEmpBtn(act.employee,'view');
+    bvcShowToast('\u2705 Viewing '+act.employee.name+' ('+act.employee.code+')','success');
+    bvcAddLog('View '+act.employee.code+' \u2014 '+act.employee.name);
+    return;
+  }
+  if(act.type==='editEmp'){
+    bvcClickEmpBtn(act.employee,'edit');
+    bvcShowToast('\u2705 Editing '+act.employee.name+' ('+act.employee.code+')','success');
+    bvcAddLog('Edit '+act.employee.code+' \u2014 '+act.employee.name);
     return;
   }
 
-  const { employee:emp, month } = act;
+  const emp=act.employee, month=act.month;
 
   if(act.type==='fullAbsent'){
     const entries=bvcGetEntries(emp.id,month);
@@ -5486,28 +5530,29 @@ function bvcExecute(act){
       allowances:{performance:0,performanceAllow:0,special:0,friday:0,
         publicHoliday:0,food:0,transport:0,hazardous:0,accommodation:0,ramadan:0}};
     saveNow(); renderPage();
-    bvcShowToast(`✅ ${emp.name} — Full Absent for ${monthLabel(month)}`,'success');
-    bvcAddLog(`${emp.code} Full Absent — ${monthLabel(month)}`);
-    toast(`${emp.name} marked Full Absent`);
+    bvcShowToast('\u2705 '+emp.name+' \u2014 Full Absent for '+monthLabel(month),'success');
+    bvcAddLog(emp.code+' Full Absent \u2014 '+monthLabel(month));
+    toast(emp.name+' marked Full Absent');
     return;
   }
 
   if(act.type==='fullPresent'){
     const entries=bvcGetEntries(emp.id,month);
     entries.forEach(en=>Object.assign(en,{remark:'',timeIn:'',break1:'',break2:'',timeOut:'',normalOT:'',fridayOT:'',phOT:''}));
+    if(typeof syncWeekOffRows==='function') syncWeekOffRows(entries);
     if(DB.payroll[month]) delete DB.payroll[month][emp.id];
     bvcTouch(entries,emp.id,month);
     saveNow(); renderPage();
-    bvcShowToast(`✅ ${emp.name} — Full Present for ${monthLabel(month)}`,'success');
-    bvcAddLog(`${emp.code} Full Present — ${monthLabel(month)}`);
-    toast(`${emp.name} marked Full Present`);
+    bvcShowToast('\u2705 '+emp.name+' \u2014 Full Present for '+monthLabel(month),'success');
+    bvcAddLog(emp.code+' Full Present \u2014 '+monthLabel(month));
+    toast(emp.name+' marked Full Present');
     return;
   }
 
   if(act.type==='attendance'){
     const entries=bvcGetEntries(emp.id,month);
     const row=entries.find(r=>r.date===act.date);
-    if(!row){ bvcShowToast(`⚠ Date ${act.date} not in this period`,'error'); return; }
+    if(!row){ bvcShowToast('\u26a0 Date '+act.date+' not in this period','error'); return; }
     row.remark=act.remark;
     if(act.remark){
       Object.assign(row,{timeIn:'',break1:'',break2:'',timeOut:'',normalOT:'',fridayOT:'',phOT:''});
@@ -5517,24 +5562,24 @@ function bvcExecute(act){
     bvcTouch(entries,emp.id,month);
     save(); bvcPatchRow(emp.id,month,row);
     const label=act.remark||'PRESENT';
-    bvcShowToast(`✅ ${emp.name} — ${label} on ${act.date}`,'success');
-    bvcAddLog(`${emp.code} → ${label} on ${act.date}`);
-    toast(`${emp.name} — ${label}`);
+    bvcShowToast('\u2705 '+emp.name+' \u2014 '+label+' on '+act.date,'success');
+    bvcAddLog(emp.code+' \u2192 '+label+' on '+act.date);
+    toast(emp.name+' \u2014 '+label);
     return;
   }
 
   if(act.type==='overtime'){
     const entries=bvcGetEntries(emp.id,month);
     const row=entries.find(r=>r.date===act.date);
-    if(!row){ bvcShowToast(`⚠ Date ${act.date} not in this period`,'error'); return; }
+    if(!row){ bvcShowToast('\u26a0 Date '+act.date+' not in this period','error'); return; }
     const hrs=Math.min(10,Math.max(0,act.hours));
     row[act.field]=hrs;
     bvcTouch(entries,emp.id,month);
     save(); bvcPatchRow(emp.id,month,row);
     const fl={normalOT:'Normal',fridayOT:'Sunday',phOT:'PH'}[act.field]||act.field;
-    bvcShowToast(`✅ ${emp.name} — ${fl} OT ${hrs}h on ${act.date}`,'success');
-    bvcAddLog(`${emp.code} → ${fl} OT ${hrs}h on ${act.date}`);
-    toast(`${emp.name} — ${fl} OT ${hrs}h`);
+    bvcShowToast('\u2705 '+emp.name+' \u2014 '+fl+' OT '+hrs+'h on '+act.date,'success');
+    bvcAddLog(emp.code+' \u2192 '+fl+' OT '+hrs+'h on '+act.date);
+    toast(emp.name+' \u2014 '+fl+' OT '+hrs+'h');
     return;
   }
 
@@ -5542,11 +5587,11 @@ function bvcExecute(act){
     const entries=bvcGetEntries(emp.id,month);
     setPayrollOverrideField(emp.id,month,act.key,act.value,entries);
     save();
-    const inp=document.querySelector(`[data-emp="${emp.id}"][data-sumf="${act.key}"]`);
+    const inp=document.querySelector('[data-emp="'+emp.id+'"][data-sumf="'+act.key+'"]');
     if(inp){ inp.value=act.value; inp.dispatchEvent(new Event('change',{bubbles:true})); }
-    bvcShowToast(`✅ ${emp.name} — ${act.key} AED ${act.value}`,'success');
-    bvcAddLog(`${emp.code} → ${act.key} = AED ${act.value}`);
-    toast(`${emp.name} — ${act.key} AED ${act.value}`);
+    bvcShowToast('\u2705 '+emp.name+' \u2014 '+act.key+' AED '+act.value,'success');
+    bvcAddLog(emp.code+' \u2192 '+act.key+' = AED '+act.value);
+    toast(emp.name+' \u2014 '+act.key+' AED '+act.value);
     return;
   }
 }
