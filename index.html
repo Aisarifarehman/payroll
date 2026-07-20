@@ -5197,6 +5197,789 @@ window.addEventListener('pagehide', ()=>{ flushSessionEnd(); });
 
   document.addEventListener('DOMContentLoaded', init);
 })();
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BERKELEY VOICE CONTROL ENGINE  v2.0  — embedded inside main app script
+   Has direct access to DB, save(), saveNow(), toast(), renderPage(),
+   renderNav(), currentPage, getEntries(), REMARK_OPTIONS, periodDates(),
+   monthKeyNow(), byId(), fmt(), etc. — no wrapper needed.
+
+   KEYBOARD SHORTCUT:  Alt + V  →  toggle microphone on/off from any page
+   VOICE COMMANDS:
+     Attendance:   "L021 absent today" / "C12659 leave" / "L003 week off on the 15th"
+     Overtime:     "L021 normal OT 3 hours" / "L105 friday OT 2" / "C4590 public holiday OT 1.5"
+     Allowances:   "L021 hazardous 300" / "L105 performance 500" / "C12659 food allowance 350"
+     Deduction:    "L003 deduction 150"
+     Navigate:     "go to timesheet" / "open dashboard" / "open employees"
+     Mark all:     "L021 full absent" / "L021 full present"
+     Stop:         "stop listening" / "voice off"
+   CUSTOM EVENT:  window → 'voiceAttendanceUpdated'  (detail: full action object)
+   PUBLIC API:    window.BVC.run("L021 absent") — testable from browser console
+═══════════════════════════════════════════════════════════════════════════ */
+(function BerkeleyVoiceEngine(){
+'use strict';
+
+/* ── 1. CONSTANTS ─────────────────────────────────────────── */
+const VOICE_LOG_KEY   = 'bvc_log_v1';
+const VOICE_STATE_KEY = 'bvc_state_v1';
+const RESTART_DELAY   = 600;    // ms after recognition ends before auto-restart
+const FINAL_DEBOUNCE  = 900;    // ms of silence before processing a final transcript
+
+const NAVY = '#0f2044', GOLD = '#c9a227', TEAL = '#1e8e5a', RED = '#c0392b';
+
+/* Remark values that exist in REMARK_OPTIONS in the host app */
+const REMARK_MAP = {
+  'present'          : '',
+  'worked'           : '',
+  'work'             : '',
+  'clear'            : '',
+  'absent'           : 'ABSENT',
+  'absence'          : 'ABSENT',
+  'off'              : 'ABSENT',
+  'week off'         : 'ABSENT',
+  'leave'            : 'EMERGENCY',
+  'annual leave'     : 'EMERGENCY',
+  'vacation'         : 'VACATION',
+  'emergency'        : 'EMERGENCY',
+  'medical'          : 'MEDICAL LEAVE',
+  'sick'             : 'MEDICAL LEAVE',
+  'sick leave'       : 'MEDICAL LEAVE',
+  'medical leave'    : 'MEDICAL LEAVE',
+  'holiday'          : 'PUBLIC HOLIDAY',
+  'public holiday'   : 'PUBLIC HOLIDAY',
+  'ph'               : 'PUBLIC HOLIDAY',
+};
+
+/* Maps voice OT type words → timesheet field names */
+const OT_FIELD_MAP = {
+  'normal'        : 'normalOT',
+  'regular'       : 'normalOT',
+  'ordinary'      : 'normalOT',
+  'friday'        : 'fridayOT',
+  'sunday'        : 'fridayOT',
+  'weekend'       : 'fridayOT',
+  'public holiday': 'phOT',
+  'holiday'       : 'phOT',
+  'ph'            : 'phOT',
+};
+
+/* Maps voice allowance words → setPayrollOverrideField keys (summary inputs) */
+const ALLOW_MAP = {
+  'hazardous'     : 'hazardous',
+  'hazard'        : 'hazardous',
+  'performance'   : 'performance',
+  'fix'           : 'performance',
+  'fixed'         : 'performance',
+  'special'       : 'special',
+  'food'          : 'food',
+  'meal'          : 'food',
+  'transport'     : 'transport',
+  'travel'        : 'transport',
+  'accommodation' : 'accommodation',
+  'housing'       : 'accommodation',
+  'ramadan'       : 'ramadan',
+  'deduction'     : 'deduction',
+  'laundry'       : 'laundry',
+};
+
+/* Maps voice navigation words → NAV item ids (matching the host app NAV array) */
+const PAGE_MAP = {
+  'dashboard'    : 'dashboard',
+  'home'         : 'dashboard',
+  'overview'     : 'dashboard',
+  'division'     : 'divisions',
+  'divisions'    : 'divisions',
+  'area'         : 'areas',
+  'areas'        : 'areas',
+  'region'       : 'blocks',
+  'regions'      : 'blocks',
+  'block'        : 'blocks',
+  'cost center'  : 'accounts',
+  'cost centres' : 'accounts',
+  'account'      : 'accounts',
+  'analytic'     : 'subaccounts',
+  'contract'     : 'contractsites',
+  'employee'     : 'employees',
+  'employees'    : 'employees',
+  'staff'        : 'employees',
+  'people'       : 'employees',
+  'transfer'     : 'transfers',
+  'transfers'    : 'transfers',
+  'timesheet'    : 'timesheet',
+  'attendance'   : 'timesheet',
+  'hazardous'    : 'hazardous',
+  'salary'       : 'salary',
+  'calculation'  : 'salary',
+  'wage'         : 'wagecard',
+  'wage card'    : 'wagecard',
+  'report'       : 'wagecard',
+  'cost centre details' : 'costcenter',
+  'settings'     : 'settings',
+};
+
+/* ── 2. STATE ─────────────────────────────────────────────── */
+let bvcRecog       = null;
+let bvcListening   = false;
+let bvcSuppressed  = false;
+let bvcFab         = null;
+let bvcPanel       = null;
+let bvcInterimEl   = null;
+let bvcLogEl       = null;
+let bvcFinalTimer  = null;
+let bvcFinalBuf    = '';
+/* Current month/emp context — set when user is on timesheet page */
+function bvcCurrentMonth(){
+  // Try to read the month picker the host app renders (id="fMonth" select)
+  const sel = document.getElementById('fMonth');
+  if(sel && sel.value) return sel.value;
+  return monthKeyNow();
+}
+
+/* ── 3. EMPLOYEE LOOKUP ───────────────────────────────────── */
+function bvcFindEmp(raw){
+  const code = raw.trim().toUpperCase().replace(/\s+/g,'');
+  return DB.employees.find(e=> (e.code||'').toUpperCase().replace(/\s+/g,'') === code) || null;
+}
+
+/* ── 4. DATE RESOLUTION ───────────────────────────────────── */
+function bvcResolveDate(phrase, month){
+  const now = new Date();
+  const p   = (phrase||'').toLowerCase().trim();
+  if(!p || p==='today')     return now.toISOString().slice(0,10);
+  if(p==='yesterday'){
+    const y=new Date(now); y.setDate(y.getDate()-1); return y.toISOString().slice(0,10);
+  }
+  /* "the 15th", "on the 3rd", "day 7", "15", "3rd" */
+  const dm = p.match(/\b(\d{1,2})(?:st|nd|rd|th)?\b/);
+  if(dm){
+    const day = parseInt(dm[1],10);
+    const mk  = month || bvcCurrentMonth();
+    if(mk){
+      /* Berkeley pay period: 26 of PREV month → 25 of CURRENT month
+         stored under the current month key. So day 26-31 belongs to the
+         previous calendar month relative to the month key. */
+      const [yr,mo] = mk.split('-').map(Number);
+      let dateObj;
+      if(day >= 26){
+        dateObj = new Date(yr, mo-2, day); // prev calendar month
+      } else {
+        dateObj = new Date(yr, mo-1, day);
+      }
+      if(!isNaN(dateObj)) return dateObj.toISOString().slice(0,10);
+    }
+    // fallback: current calendar month
+    return new Date(now.getFullYear(), now.getMonth(), day).toISOString().slice(0,10);
+  }
+  return now.toISOString().slice(0,10);
+}
+
+/* ── 5. COMMAND PARSER ────────────────────────────────────── */
+/*
+ * Returns an action object:
+ * { type, empCode, employee, date, month,
+ *   remark, otField, otHours, allowKey, allowValue, pageId,
+ *   fullAbsent, fullPresent, raw }
+ */
+function bvcParse(raw){
+  const text = raw.trim();
+  const low  = text.toLowerCase();
+  const act  = { raw: text, type: null, empCode: null, employee: null,
+                 date: null, month: null, remark: null, otField: null,
+                 otHours: null, allowKey: null, allowValue: null,
+                 pageId: null, fullAbsent: false, fullPresent: false };
+
+  /* ── SYSTEM: stop ── */
+  if(/stop listening|voice off|mute|disable voice/.test(low)){
+    act.type = 'system'; return act;
+  }
+
+  /* ── NAVIGATE ── */
+  for(const [kw, pid] of Object.entries(PAGE_MAP)){
+    if(low.includes(kw)){
+      act.type = 'navigate'; act.pageId = pid; return act;
+    }
+  }
+
+  /* ── Employee code extraction ──
+     Matches: L021, C12659, LDRV, F280, l24190, L 153, L 19094 etc. */
+  const codeRx = /\b([a-zA-Z]{1,4}\s?\d{1,6}|LDRV)\b/i;
+  const codeM  = text.match(codeRx);
+  if(!codeM) return null;
+
+  act.empCode  = codeM[1].replace(/\s+/g,'').toUpperCase();
+  act.employee = bvcFindEmp(act.empCode);
+
+  /* ── Date extraction ── */
+  const datePhrase = low.match(
+    /\b(today|yesterday|(?:on\s+)?(?:the\s+)?\d{1,2}(?:st|nd|rd|th)?)\b/
+  )?.[0] || 'today';
+  act.month = bvcCurrentMonth();
+  act.date  = bvcResolveDate(datePhrase, act.month);
+
+  /* ── FULL ABSENT / FULL PRESENT (entire month) ── */
+  if(/full absent|entire absent|completely absent/.test(low)){
+    act.type = 'fullAbsent'; return act;
+  }
+  if(/full present|entire present|completely present/.test(low)){
+    act.type = 'fullPresent'; return act;
+  }
+
+  /* ── OVERTIME ── (check before attendance to avoid "holiday" clash) ──
+     Patterns: "normal OT 3", "normal overtime 2.5 hours",
+               "friday OT 2", "public holiday overtime 1.5" */
+  const otTypeStr = Object.keys(OT_FIELD_MAP).join('|');
+  const otTypeRx  = new RegExp(`(${otTypeStr})\\s+(?:overtime|over time|ot)`, 'i');
+  const otRevRx   = new RegExp(`(?:overtime|over time|ot)\\s+(${otTypeStr})`, 'i');
+  const otHrsRx   = /(\d+(?:\.\d+)?)\s*(?:hours?|hrs?)?/i;
+  const otTypeM   = low.match(otTypeRx) || low.match(otRevRx);
+  const otHrsM    = text.match(otHrsRx);
+
+  if((otTypeM || /\b(overtime|over time|\bot\b)/i.test(raw)) && otHrsM){
+    act.type    = 'overtime';
+    const typeKw = (otTypeM?.[1]||'normal').toLowerCase().trim();
+    act.otField  = OT_FIELD_MAP[typeKw] || 'normalOT';
+    act.otHours  = parseFloat(otHrsM[1]);
+    return act;
+  }
+
+  /* ── ALLOWANCE / DEDUCTION ── */
+  const allowStr = Object.keys(ALLOW_MAP).join('|');
+  const allowRx  = new RegExp(`(${allowStr})(?:\\s+(?:allowance|deduction))?\\s+(\\d+(?:\\.\\d+)?)`, 'i');
+  const allowM   = low.match(allowRx);
+  if(allowM){
+    act.type       = 'allowance';
+    act.allowKey   = ALLOW_MAP[allowM[1].toLowerCase().trim()];
+    act.allowValue = parseFloat(allowM[2]);
+    return act;
+  }
+  /* e.g. "deduction 150" shortcut */
+  const dedM = low.match(/deduct(?:ion)?\s+(\d+(?:\.\d+)?)/i);
+  if(dedM){
+    act.type = 'allowance'; act.allowKey = 'deduction'; act.allowValue = parseFloat(dedM[1]);
+    return act;
+  }
+
+  /* ── ATTENDANCE REMARK ── */
+  for(const [kw, rm] of Object.entries(REMARK_MAP)){
+    if(low.includes(kw)){
+      act.type   = 'attendance';
+      act.remark = rm;
+      return act;
+    }
+  }
+
+  return null;  // not understood
+}
+
+/* ── 6. COMMAND EXECUTOR ──────────────────────────────────── */
+function bvcExecute(act){
+  if(!act) return { ok:false, msg:'Command not recognised. Try: "L021 absent" or "L021 normal OT 2".' };
+
+  /* SYSTEM */
+  if(act.type === 'system'){
+    bvcStop(); return { ok:true, msg:'Voice control stopped.' };
+  }
+
+  /* NAVIGATE */
+  if(act.type === 'navigate'){
+    if(act.pageId){
+      currentPage = act.pageId;
+      renderNav();
+      renderPage();
+      return { ok:true, msg:`Navigated to ${act.pageId}.` };
+    }
+    return { ok:false, msg:'Unknown page.' };
+  }
+
+  /* All other types need a valid employee */
+  if(!act.employee) return { ok:false, msg:`Employee "${act.empCode}" not found in database.` };
+
+  const empId = act.employee.id;
+  const month  = act.month || bvcCurrentMonth();
+
+  /* FULL ABSENT */
+  if(act.type === 'fullAbsent'){
+    const entries = bvcGetEntries(empId, month);
+    entries.forEach(en=> Object.assign(en, {remark:'ABSENT', timeIn:'', break1:'', break2:'', timeOut:'', normalOT:'', fridayOT:'', phOT:''}));
+    bvcBumpAndTouch(entries, empId, month);
+    DB.payroll[month] = DB.payroll[month]||{};
+    DB.payroll[month][empId] = {
+      basicSalary:0, normalOTAmt:0, fridayOTAmt:0, phOTAmt:0, twelveHourAllowanceAmt:0, deduction:0,
+      hazardousManualEdit:true,
+      allowances:{performance:0, performanceAllow:0, special:0, friday:0, publicHoliday:0,
+                  food:0, transport:0, hazardous:0, accommodation:0, ramadan:0}
+    };
+    saveNow();
+    bvcFireEvent(act);
+    bvcRefresh();
+    return { ok:true, msg:`${act.employee.name} — Full Absent for ${monthLabel(month)}.` };
+  }
+
+  /* FULL PRESENT */
+  if(act.type === 'fullPresent'){
+    const entries = bvcGetEntries(empId, month);
+    entries.forEach(en=> Object.assign(en, {remark:'', timeIn:'', break1:'', break2:'', timeOut:'', normalOT:'', fridayOT:'', phOT:''}));
+    /* Restore defaults — same logic as the host app's fullPresentBtn */
+    if(DB.payroll[month]) delete DB.payroll[month][empId];
+    bvcBumpAndTouch(entries, empId, month);
+    saveNow();
+    bvcFireEvent(act);
+    bvcRefresh();
+    return { ok:true, msg:`${act.employee.name} — Full Present for ${monthLabel(month)}.` };
+  }
+
+  /* ATTENDANCE */
+  if(act.type === 'attendance'){
+    const entries = bvcGetEntries(empId, month);
+    const row = entries.find(r=> r.date === act.date);
+    if(!row) return { ok:false, msg:`Date ${act.date} not in ${monthLabel(month)} period.` };
+    row.remark = act.remark;
+    if(act.remark){
+      /* Remark set → clear times/OT, same as the host app's change handler */
+      Object.assign(row, {timeIn:'', break1:'', break2:'', timeOut:'', normalOT:'', fridayOT:'', phOT:''});
+    } else {
+      /* Present → restore default working hours if not a week-off day */
+      if(!isWeekOffDate(act.date)){
+        Object.assign(row, {timeIn:'08:00', break1:'12:00-13:00', break2:'17:00-18:00', timeOut:'20:00', normalOT:2, fridayOT:0, phOT:0});
+      }
+    }
+    bvcBumpAndTouch(entries, empId, month);
+    save();
+    bvcPatchDOM(act, row);
+    bvcFireEvent(act);
+    const label = act.remark || 'PRESENT';
+    return { ok:true, msg:`${act.employee.name} — ${label} on ${act.date}.` };
+  }
+
+  /* OVERTIME */
+  if(act.type === 'overtime'){
+    const entries = bvcGetEntries(empId, month);
+    const row = entries.find(r=> r.date === act.date);
+    if(!row) return { ok:false, msg:`Date ${act.date} not in period.` };
+    let hrs = act.otHours;
+    if(hrs > 10) hrs = 10; if(hrs < 0) hrs = 0;
+    row[act.otField] = hrs;
+    bvcBumpAndTouch(entries, empId, month);
+    save();
+    bvcPatchDOM(act, row);
+    bvcFireEvent(act);
+    const fieldLabel = {normalOT:'Normal',fridayOT:'Sunday',phOT:'PH'}[act.otField]||act.otField;
+    return { ok:true, msg:`${act.employee.name} — ${fieldLabel} OT = ${hrs}h on ${act.date}.` };
+  }
+
+  /* ALLOWANCE */
+  if(act.type === 'allowance'){
+    const entries = bvcGetEntries(empId, month);
+    setPayrollOverrideField(empId, month, act.allowKey, act.allowValue, entries);
+    save();
+    /* Live-patch the visible summary input if it's on screen */
+    const sumInp = document.querySelector(`[data-emp="${empId}"][data-sumf="${act.allowKey}"]`);
+    if(sumInp){ sumInp.value = act.allowValue || ''; sumInp.dispatchEvent(new Event('change',{bubbles:true})); }
+    bvcFireEvent(act);
+    return { ok:true, msg:`${act.employee.name} — ${act.allowKey} = AED ${act.allowValue} (${monthLabel(month)}).` };
+  }
+
+  return { ok:false, msg:'Action type not handled.' };
+}
+
+/* ── 6a. INTERNAL HELPERS ─────────────────────────────────── */
+function bvcGetEntries(empId, month){
+  DB.timesheets[empId] = DB.timesheets[empId] || {};
+  if(!DB.timesheets[empId][month]){
+    /* Generate the period rows the same way pageTimesheet does */
+    const dates   = periodDates(month);
+    const empAcct = (byId(DB.employees, empId)||{}).accountId || '';
+    DB.timesheets[empId][month] = dates.map(d=>{
+      if(isWeekOffDate(d)) return {date:d,remark:'',timeIn:'',break1:'',break2:'',timeOut:'',normalOT:'',fridayOT:'',phOT:'',accountId:empAcct};
+      return {date:d,remark:'',timeIn:'08:00',break1:'12:00-13:00',break2:'17:00-18:00',timeOut:'20:00',normalOT:2,fridayOT:0,phOT:0,accountId:empAcct};
+    });
+  }
+  return DB.timesheets[empId][month];
+}
+
+function bvcBumpAndTouch(entries, empId, month){
+  if(typeof bumpTimesheetVersion === 'function') bumpTimesheetVersion(entries);
+  if(typeof markTouched === 'function') markTouched(empId, month);
+}
+
+/* Live-patch visible DOM without a full re-render */
+function bvcPatchDOM(act, row){
+  const empId = act.employee?.id;
+  if(!empId) return;
+
+  /* Find all tsi (timesheet input) elements for this employee's row by date.
+     The host app stores entries[idx] and the DOM rows carry data-emp + data-idx.
+     Find the matching tr first, then update its inputs. */
+  const tbody = document.querySelector(`.ts-body[data-emp="${empId}"]`);
+  if(!tbody) return;
+
+  /* Find the tr whose entries[idx].date matches act.date */
+  const entries = DB.timesheets?.[empId]?.[act.month];
+  if(!entries) return;
+  const idx = entries.findIndex(r=> r.date === act.date);
+  if(idx < 0) return;
+
+  const tr = tbody.querySelector(`tr[data-idx="${idx}"]`);
+  if(!tr) return;
+
+  /* Update every input/select in the row from the (already mutated) row object */
+  tr.querySelectorAll('input[data-f], select[data-f]').forEach(el=>{
+    const f = el.dataset.f;
+    if(f in row) el.value = row[f];
+  });
+
+  /* Update row styling */
+  const rm = (row.remark||'').toUpperCase();
+  tr.classList.remove('weekoff-row','absent-row','medical-row');
+  if(isWeekOffDate(row.date)) tr.classList.add('weekoff-row');
+  else if(rm === 'MEDICAL LEAVE') tr.classList.add('medical-row');
+  else if(rm) tr.classList.add('absent-row');
+
+  /* Update stats footer and salary total in the same sheet */
+  const stats = calcAttendanceStats(entries);
+  const override = getPayrollOverride(empId, act.month);
+  const emp = byId(DB.employees, empId);
+  const sal = computeSalaryWithEntries(emp, entries, stats, override, act.month);
+  const setTxt = (id, v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
+  setTxt(`ao_${empId}`, stats.absentDays);
+  setTxt(`lo_${empId}`, stats.leaveDays);
+  setTxt(`md_${empId}`, stats.medicalDays||0);
+  setTxt(`wo_${empId}`, stats.weekOffs);
+  setTxt(`ph_${empId}`, stats.holidayDays);
+  setTxt(`tn_${empId}`, stats.totalNormal);
+  setTxt(`tf_${empId}`, stats.totalFriday);
+  setTxt(`tp_${empId}`, stats.totalPh);
+  setTxt(`total_${empId}`, fmt(sal.totalSalary));
+}
+
+/* Full page re-render — used for Full Absent / Full Present */
+function bvcRefresh(){
+  if(currentPage === 'timesheet') { renderPage(); }
+  else if(currentPage === 'salary') { renderPage(); }
+  else if(currentPage === 'dashboard') { renderPage(); }
+}
+
+/* Custom event fired after every successful write */
+function bvcFireEvent(act){
+  window.dispatchEvent(new CustomEvent('voiceAttendanceUpdated',{
+    bubbles:true,
+    detail:{
+      empCode:act.empCode, empId:act.employee?.id, empName:act.employee?.name,
+      type:act.type, date:act.date, month:act.month,
+      remark:act.remark, otField:act.otField, otHours:act.otHours,
+      allowKey:act.allowKey, allowValue:act.allowValue, pageId:act.pageId,
+      raw:act.raw, timestamp:new Date().toISOString()
+    }
+  }));
+}
+
+/* Append to persistent voice command log */
+function bvcLog(entry){
+  try{
+    const log = JSON.parse(localStorage.getItem(VOICE_LOG_KEY)||'[]');
+    log.unshift({ts:new Date().toISOString(),...entry});
+    if(log.length>300) log.length=300;
+    localStorage.setItem(VOICE_LOG_KEY, JSON.stringify(log));
+  }catch{}
+}
+
+/* ── 7. SPEECH RECOGNITION ENGINE ────────────────────────── */
+function bvcBuildRecognition(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR) return null;
+
+  const r = new SR();
+  r.continuous     = true;
+  r.interimResults = true;
+  r.lang           = 'en-US';
+  r.maxAlternatives= 1;
+
+  r.onstart = ()=>{ bvcListening=true; bvcUpdateFab(); bvcSetInterim('Listening…'); };
+
+  r.onend = ()=>{
+    bvcListening=false;
+    bvcUpdateFab();
+    bvcSetInterim(bvcSuppressed ? 'Voice control off.' : 'Reconnecting…');
+    if(!bvcSuppressed) setTimeout(()=>{ try{ bvcRecog.start(); }catch{} }, RESTART_DELAY);
+  };
+
+  r.onerror = (e)=>{
+    if(e.error==='not-allowed'||e.error==='service-not-allowed'){
+      bvcShowToast('Microphone access denied. Please allow microphone in your browser.','error',5000);
+      bvcSuppressed = true;
+    }
+    /* no-speech / network errors are transient — auto-restart handles them */
+  };
+
+  r.onresult = (e)=>{
+    let interim='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const txt = e.results[i][0].transcript;
+      if(e.results[i].isFinal){ bvcFinalBuf += txt+' '; }
+      else { interim = txt; }
+    }
+    bvcSetInterim(interim || '…');
+    clearTimeout(bvcFinalTimer);
+    if(bvcFinalBuf.trim()){
+      bvcFinalTimer = setTimeout(()=>{
+        const txt = bvcFinalBuf.trim(); bvcFinalBuf='';
+        bvcSetInterim('');
+        bvcProcessTranscript(txt);
+      }, FINAL_DEBOUNCE);
+    }
+  };
+
+  return r;
+}
+
+function bvcProcessTranscript(text){
+  /* Split on "and" / comma so multi-commands work:
+     "L021 absent and L003 present" → two actions */
+  const segments = text.split(/\s+and\s+|\s*,\s*/i).filter(s=>s.trim().length>3);
+  for(const seg of segments){
+    const trimmed = seg.trim();
+    const act    = bvcParse(trimmed);
+    const result = bvcExecute(act);
+    bvcLog({transcript:trimmed, ok:result.ok, msg:result.msg, action:act?act.type:null});
+    bvcAddLogEntry(trimmed, result.msg, result.ok);
+    if(result.ok){
+      bvcShowToast('✅ '+result.msg, 'success');
+      toast(result.msg);   // also use the host app's built-in toast
+    } else {
+      bvcShowToast('⚠ '+result.msg, 'error');
+    }
+  }
+}
+
+function bvcStart(){
+  if(!bvcRecog) bvcRecog = bvcBuildRecognition();
+  if(!bvcRecog){ bvcShowToast('Speech recognition is not supported in this browser.\nUse Chrome or Edge.','error',6000); return; }
+  bvcSuppressed = false;
+  try{ bvcRecog.start(); }catch{}
+  if(bvcPanel) bvcPanel.classList.add('bvc-open');
+  localStorage.setItem(VOICE_STATE_KEY,'on');
+}
+
+function bvcStop(){
+  bvcSuppressed = true;
+  if(bvcRecog){ try{ bvcRecog.stop(); }catch{} }
+  bvcListening = false;
+  bvcUpdateFab();
+  bvcSetInterim('Voice control off.');
+  localStorage.setItem(VOICE_STATE_KEY,'off');
+}
+
+function bvcToggle(){ bvcListening ? bvcStop() : bvcStart(); }
+
+/* ── 8. UI ────────────────────────────────────────────────── */
+const BVC_CSS = `
+  #bvcFab{
+    position:fixed;bottom:24px;right:24px;z-index:99999;
+    width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;
+    background:${NAVY};color:${GOLD};
+    box-shadow:0 4px 20px rgba(0,0,0,.5);
+    display:flex;align-items:center;justify-content:center;
+    font-size:22px;font-family:inherit;transition:background .2s,transform .15s;
+    outline:none;user-select:none;
+  }
+  #bvcFab:hover{ transform:scale(1.09); }
+  #bvcFab.bvc-on{ background:${RED}; animation:bvcPulse 1.3s infinite; }
+  @keyframes bvcPulse{
+    0%,100%{box-shadow:0 4px 20px rgba(192,57,43,.4);}
+    50%{box-shadow:0 0 0 12px rgba(192,57,43,.15),0 4px 20px rgba(192,57,43,.6);}
+  }
+  #bvcPanel{
+    position:fixed;bottom:90px;right:24px;z-index:99998;
+    width:340px;max-height:440px;
+    background:rgba(15,32,68,.97);border-radius:14px;
+    border:1px solid ${GOLD}55;
+    box-shadow:0 8px 40px rgba(0,0,0,.65);
+    display:none;flex-direction:column;overflow:hidden;
+    font-family:'Segoe UI',Arial,sans-serif;font-size:13px;color:#e8dfc2;
+  }
+  #bvcPanel.bvc-open{ display:flex; }
+  #bvcPanelHead{
+    padding:10px 14px;background:${NAVY};
+    display:flex;align-items:center;justify-content:space-between;
+    border-bottom:1px solid ${GOLD}44;flex-shrink:0;
+  }
+  #bvcPanelHead .bvc-title{ font-weight:700;color:${GOLD};font-size:13px; }
+  #bvcPanelHead .bvc-status-dot{
+    width:8px;height:8px;border-radius:50%;background:#555;
+    display:inline-block;margin-right:7px;flex-shrink:0;
+    transition:background .3s;
+  }
+  #bvcPanelHead .bvc-status-dot.on{ background:${RED}; }
+  #bvcCloseBtn{ background:none;border:none;color:#aaa;cursor:pointer;font-size:17px;line-height:1;padding:0 2px; }
+  #bvcInterim{
+    padding:8px 14px;color:#aaa;font-style:italic;min-height:28px;
+    font-size:12px;flex-shrink:0;border-bottom:1px solid #ffffff11;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  #bvcLog{ overflow-y:auto;flex:1;padding:4px 0; }
+  .bvc-entry{ padding:6px 14px;border-bottom:1px solid #ffffff0c; }
+  .bvc-entry .bvc-raw{ font-size:11px;color:#999;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+  .bvc-entry .bvc-msg{ font-size:12.5px;font-weight:600; }
+  .bvc-entry.ok  .bvc-msg{ color:#4cde9a; }
+  .bvc-entry.err .bvc-msg{ color:#ff7373; }
+  .bvc-entry.pnd .bvc-msg{ color:#ffd; }
+  #bvcHints{
+    padding:8px 14px;font-size:10.5px;color:#7a8499;flex-shrink:0;
+    border-top:1px solid #ffffff0e;text-align:center;line-height:1.6;
+  }
+  /* toast override — above existing host toast */
+  #bvcToast{
+    position:fixed;bottom:90px;left:50%;transform:translateX(-50%);
+    z-index:100000;padding:10px 22px;border-radius:9px;
+    font-family:'Segoe UI',Arial,sans-serif;font-size:13px;font-weight:600;
+    pointer-events:none;opacity:0;transition:opacity .22s;
+    max-width:88vw;text-align:center;white-space:pre-line;
+    box-shadow:0 4px 24px rgba(0,0,0,.55);
+  }
+  #bvcToast.show{ opacity:1; }
+  #bvcToast.success{ background:${TEAL};color:#fff; }
+  #bvcToast.error{ background:${RED};color:#fff; }
+  /* Mic indicator in the header top-bar (next to logout button) */
+  #bvcHeaderBtn{
+    background:none;border:1px solid ${GOLD}66;border-radius:7px;
+    color:${GOLD};cursor:pointer;padding:4px 10px;font-size:12px;
+    font-family:inherit;font-weight:700;transition:background .15s;
+    margin-left:8px;white-space:nowrap;
+  }
+  #bvcHeaderBtn:hover{ background:${GOLD}22; }
+  #bvcHeaderBtn.bvc-on{ border-color:${RED};color:${RED}; }
+`;
+
+function bvcBuildUI(){
+  /* Inject CSS */
+  const st = document.createElement('style');
+  st.id = 'bvcStyle';
+  st.textContent = BVC_CSS;
+  document.head.appendChild(st);
+
+  /* Floating mic FAB */
+  bvcFab = document.createElement('button');
+  bvcFab.id    = 'bvcFab';
+  bvcFab.title = 'Voice Control — Alt+V';
+  bvcFab.setAttribute('aria-label', 'Toggle voice control');
+  bvcFab.textContent = '🎤';
+  bvcFab.onclick = ()=>{ bvcToggle(); bvcPanel.classList.toggle('bvc-open'); };
+  document.body.appendChild(bvcFab);
+
+  /* Command panel */
+  bvcPanel = document.createElement('div');
+  bvcPanel.id = 'bvcPanel';
+  bvcPanel.setAttribute('role','region');
+  bvcPanel.setAttribute('aria-label','Voice control panel');
+  bvcPanel.innerHTML = `
+    <div id="bvcPanelHead">
+      <span><span class="bvc-status-dot" id="bvcDot"></span><span class="bvc-title">🎙 Voice Control</span></span>
+      <button id="bvcCloseBtn" title="Close panel">✕</button>
+    </div>
+    <div id="bvcInterim">Say "L021 absent" or "Alt+V" to start…</div>
+    <div id="bvcLog" role="log" aria-live="polite"></div>
+    <div id="bvcHints">
+      <b>Examples:</b> "L021 absent today" · "L105 normal OT 3" · "C12659 food allowance 350"<br>
+      "L021 full absent" · "go to timesheet" · "stop listening"<br>
+      <b>Shortcut:</b> Alt+V anywhere
+    </div>
+  `;
+  document.body.appendChild(bvcPanel);
+  bvcInterimEl = document.getElementById('bvcInterim');
+  bvcLogEl     = document.getElementById('bvcLog');
+  document.getElementById('bvcCloseBtn').onclick = ()=> bvcPanel.classList.remove('bvc-open');
+
+  /* Toast element */
+  const toastEl = document.createElement('div');
+  toastEl.id = 'bvcToast';
+  document.body.appendChild(toastEl);
+
+  /* Inject a small Voice button in the sidebar footer or top nav */
+  bvcInjectHeaderBtn();
+}
+
+/* Inject a "🎙 Voice" button into the sidebar footer (visible on every page/tab) */
+function bvcInjectHeaderBtn(){
+  const footer = document.querySelector('.sidebar-footer');
+  if(!footer) return;
+  const btn = document.createElement('button');
+  btn.id = 'bvcHeaderBtn';
+  btn.title = 'Voice Control (Alt+V)';
+  btn.innerHTML = '🎙 Voice';
+  btn.onclick = ()=>{ bvcToggle(); bvcPanel.classList.toggle('bvc-open'); };
+  footer.prepend(btn);
+  window._bvcHeaderBtn = btn;
+}
+
+/* ── 9. UI HELPERS ────────────────────────────────────────── */
+function bvcUpdateFab(){
+  if(bvcFab)  { bvcFab.classList.toggle('bvc-on', bvcListening); bvcFab.textContent = bvcListening ? '🔴' : '🎤'; bvcFab.title = bvcListening ? 'Listening… Alt+V to stop' : 'Voice Control — Alt+V'; }
+  const dot = document.getElementById('bvcDot');
+  if(dot) dot.classList.toggle('on', bvcListening);
+  const hBtn = document.getElementById('bvcHeaderBtn');
+  if(hBtn){ hBtn.classList.toggle('bvc-on', bvcListening); hBtn.innerHTML = bvcListening ? '🔴 On' : '🎙 Voice'; }
+}
+
+function bvcSetInterim(txt){
+  if(bvcInterimEl) bvcInterimEl.textContent = txt||'';
+}
+
+let _bvcToastTimer=null;
+function bvcShowToast(msg, type='success', dur=3000){
+  const el = document.getElementById('bvcToast');
+  if(!el) return;
+  clearTimeout(_bvcToastTimer);
+  el.textContent = msg; el.className = `show ${type}`;
+  _bvcToastTimer = setTimeout(()=>{ el.className=type; }, dur);
+}
+
+function bvcAddLogEntry(raw, msg, ok){
+  if(!bvcLogEl) return;
+  const d = document.createElement('div');
+  d.className = `bvc-entry ${ok?'ok':'err'}`;
+  d.innerHTML = `<div class="bvc-raw">${bvcEsc(raw)}</div><div class="bvc-msg">${bvcEsc(msg)}</div>`;
+  bvcLogEl.prepend(d);
+  while(bvcLogEl.children.length > 60) bvcLogEl.lastChild?.remove();
+}
+
+function bvcEsc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* ── 10. KEYBOARD SHORTCUT ────────────────────────────────── */
+document.addEventListener('keydown', (e)=>{
+  if(e.altKey && (e.key==='v'||e.key==='V')){
+    e.preventDefault();
+    bvcToggle();
+    if(bvcPanel && bvcListening) bvcPanel.classList.add('bvc-open');
+  }
+});
+
+/* ── 11. INIT ─────────────────────────────────────────────── */
+function bvcInit(){
+  bvcBuildUI();
+  /* Auto-restore last state */
+  const lastState = localStorage.getItem(VOICE_STATE_KEY);
+  if(lastState === 'on') bvcStart();
+  else bvcShowToast('Voice control ready — press Alt+V or click 🎤', 'success', 4500);
+}
+
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded', bvcInit);
+} else {
+  bvcInit();
+}
+
+/* ── 12. PUBLIC API ───────────────────────────────────────── */
+window.BVC = {
+  start  : bvcStart,
+  stop   : bvcStop,
+  toggle : bvcToggle,
+  parse  : bvcParse,
+  execute: bvcExecute,
+  getLog : ()=>{ try{ return JSON.parse(localStorage.getItem(VOICE_LOG_KEY)||'[]'); }catch{ return []; } },
+  run(text){ const a=bvcParse(text); return bvcExecute(a); },
+};
+
+})(); /* end BerkeleyVoiceEngine */
 </script>
 </body>
 </html>
