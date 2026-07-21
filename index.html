@@ -5296,16 +5296,26 @@ function bvcFindEmp(code){
   return DB.employees.find(e=>(e.code||'').toUpperCase().replace(/\s+/g,'')=== c)||null;
 }
 
+/* LOCAL date formatting — never toISOString() which shifts to UTC and
+   makes every date one day earlier in Dubai (UTC+4). */
+function bvcFmtDate(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+/* Remembers the last day the user spoke about, so "16 july absent" then
+   "make present" (no date) applies to 16 july, not today. */
+let bvcLastDate = null;
+
 function bvcResolveDate(low, month){
-  if(!low||low==='today') return new Date().toISOString().slice(0,10);
-  if(low==='yesterday'){ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
+  if(!low||low==='today') return bvcFmtDate(new Date());
+  if(low==='yesterday'){ const d=new Date(); d.setDate(d.getDate()-1); return bvcFmtDate(d); }
   const m = low.match(/\b(\d{1,2})(?:st|nd|rd|th)?\b/);
   if(m){
     const day=parseInt(m[1],10), [yr,mo]=month.split('-').map(Number);
-    const d = new Date(day>=26 ? new Date(yr,mo-2,day) : new Date(yr,mo-1,day));
-    if(!isNaN(d)) return d.toISOString().slice(0,10);
+    /* Pay period 26 prev month -> 25 this month: day 26-31 = previous calendar month */
+    const d = day>=26 ? new Date(yr,mo-2,day) : new Date(yr,mo-1,day);
+    if(!isNaN(d)) return bvcFmtDate(d);
   }
-  return new Date().toISOString().slice(0,10);
+  return bvcFmtDate(new Date());
 }
 
 function bvcGetEntries(empId, month){
@@ -5428,8 +5438,10 @@ function bvcParse(text){
 
   if(target){
     const month = bvcMonth();
-    const datePh = (low.match(/\b(today|yesterday|(?:on\s+)?(?:the\s+)?\d{1,2}(?:st|nd|rd|th)?)\b/)||[])[0]||'today';
-    const date   = bvcResolveDate(datePh, month);
+    /* Date: explicitly spoken > last-remembered day > today */
+    const dateM = low.match(/\b(today|yesterday|(?:on\s+)?(?:the\s+)?\d{1,2}(?:st|nd|rd|th)?)\b/);
+    const date  = dateM ? bvcResolveDate(dateM[0], month)
+                        : (bvcLastDate || bvcFmtDate(new Date()));
 
     /* FULL ABSENT / FULL PRESENT + attendance remarks */
     for(const entry of REMARK_MAP){
@@ -5465,7 +5477,48 @@ function bvcParse(text){
     return { type:'openEmp', employee:emp };
   }
 
+  /* UNIVERSAL BUTTON COMMAND — "open / add / remove / change / save /
+     process / modify / delete / apply / export / print ..." followed by
+     (optionally) the button's name. Clicks any visible button anywhere
+     in the app whose label matches what was spoken. */
+  const verbM = low.match(/\b(open|click|press|add|create|new|remove|delete|change|modify|update|save|process|apply|export|import|refresh|reset|generate|print|download|upload|search|clear)\b\s*(.*)$/);
+  if(verbM){
+    return { type:'clickBtn', verb:verbM[1], rest:(verbM[2]||'').trim() };
+  }
+
   return null; /* not understood → silently ignore */
+}
+
+/* Find the best visible clickable element whose label matches the phrase.
+   Ignores the voice panel's own buttons. Returns element or null. */
+function bvcClickByText(phrase){
+  const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
+  const target=norm(phrase);
+  if(!target || target.length<2) return null;
+  const els=[...document.querySelectorAll('button, a, [role="button"], input[type="button"], input[type="submit"], .btn')]
+    .filter(el=>{
+      if(el.id && el.id.startsWith('bvc')) return false;       /* skip voice UI */
+      if(el.disabled) return false;
+      const r=el.getBoundingClientRect();
+      return r.width>0 && r.height>0;                            /* visible only */
+    });
+  let best=null, bestScore=0;
+  for(const el of els){
+    const txt=norm(el.textContent || el.value || el.title || el.getAttribute('aria-label'));
+    if(!txt) continue;
+    let score=0;
+    if(txt===target) score=100;
+    else if(txt.includes(target)) score=80 - Math.min(30, txt.length-target.length);
+    else if(target.includes(txt) && txt.length>=3) score=55;
+    else {
+      const tw=target.split(' ');
+      const xw=new Set(txt.split(' '));
+      const hits=tw.filter(w=>xw.has(w)).length;
+      if(hits>0) score=Math.round(50*hits/tw.length);
+    }
+    if(score>bestScore){ bestScore=score; best=el; }
+  }
+  return bestScore>=45 ? best : null;
 }
 
 /* ── EXECUTOR ─────────────────────────────────────────────── */
@@ -5504,6 +5557,24 @@ function bvcExecute(act){
   }
 
   if(act.type==='openEmp'){ bvcOpenEmpTimesheet(act.employee); return; }
+
+  if(act.type==='clickBtn'){
+    /* Try: full phrase after verb → verb+rest together → just the verb */
+    const tries=[];
+    if(act.rest){ tries.push(act.rest, act.verb+' '+act.rest); }
+    tries.push(act.verb);
+    for(const t of tries){
+      const el=bvcClickByText(t);
+      if(el){
+        el.click();
+        const label=(el.textContent||el.value||'button').trim().replace(/\s+/g,' ').slice(0,40);
+        bvcShowToast('\u2705 '+label,'success');
+        bvcAddLog('Clicked: '+label);
+        return;
+      }
+    }
+    return; /* no matching button on screen → silently ignore */
+  }
 
   if(act.type==='viewEmp'){
     bvcClickEmpBtn(act.employee,'view');
@@ -5561,6 +5632,7 @@ function bvcExecute(act){
     }
     bvcTouch(entries,emp.id,month);
     save(); bvcPatchRow(emp.id,month,row);
+    bvcLastDate = act.date;
     const label=act.remark||'PRESENT';
     bvcShowToast('\u2705 '+emp.name+' \u2014 '+label+' on '+act.date,'success');
     bvcAddLog(emp.code+' \u2192 '+label+' on '+act.date);
@@ -5576,6 +5648,7 @@ function bvcExecute(act){
     row[act.field]=hrs;
     bvcTouch(entries,emp.id,month);
     save(); bvcPatchRow(emp.id,month,row);
+    bvcLastDate = act.date;
     const fl={normalOT:'Normal',fridayOT:'Sunday',phOT:'PH'}[act.field]||act.field;
     bvcShowToast('\u2705 '+emp.name+' \u2014 '+fl+' OT '+hrs+'h on '+act.date,'success');
     bvcAddLog(emp.code+' \u2192 '+fl+' OT '+hrs+'h on '+act.date);
