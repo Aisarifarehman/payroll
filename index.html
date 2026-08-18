@@ -3261,7 +3261,10 @@ function pageHazardous(main){
     }
 
     main.innerHTML = `
-      <div class="pageheader"><div><h2>Hazardous Allowance</h2><div class="sub">${subtitle}</div></div></div>
+      <div class="pageheader" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <div><h2>Hazardous Allowance</h2><div class="sub">${subtitle}</div></div>
+        ${!isYearly ? `<button id="bulkEntryBtn" type="button" style="padding:8px 18px;background:#1a4fa8;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;flex-shrink:0;">⚡ Bulk Entry (Excel-style)</button>` : ''}
+      </div>
       <div class="card">
         <div class="filters">
           <div class="fitem"><label>Report</label><select id="hType">
@@ -3305,6 +3308,9 @@ function pageHazardous(main){
       fSearch=e.target.value; renderInner();
       const el = document.getElementById('hSearch'); el.focus(); el.setSelectionRange(fSearch.length, fSearch.length);
     };
+
+    const bulkBtn = document.getElementById('bulkEntryBtn');
+    if(bulkBtn) bulkBtn.onclick = ()=> openBulkEntry(month);
 
     main.querySelectorAll('[data-goto-ts]').forEach(a=>a.onclick=()=>goToTimesheet(a.dataset.gotoTs, month));
     main.querySelectorAll('.hzi').forEach(inp=>{
@@ -5794,6 +5800,270 @@ function bvcAddLog(msg){
   const d=document.createElement('div'); d.className='bvcE'; d.textContent=msg;
   bvcLogEl.prepend(d);
   while(bvcLogEl.children.length>50) bvcLogEl.lastChild?.remove();
+}
+
+/* ══════════════════════════════════════════════════════════════
+   BULK ENTRY — Excel-style full-screen grid for Hazardous sheet
+   • Tab/Enter moves to next cell (down column then right)
+   • Ctrl+D fills selected cell value down to all selected rows
+   • Ctrl+V paste from Excel (tab-separated) fills rows
+   • Click drag to select multiple cells in a column
+   • One "Apply & Save" button pushes all to Hazardous sheet
+   ══════════════════════════════════════════════════════════════ */
+function openBulkEntry(month){
+  if(document.getElementById('bulkEntryOverlay')) return;
+
+  const emps = DB.employees.filter(e=>(e.status||'Active')==='Active').sort((a,b)=>a.name.localeCompare(b.name));
+  const COLS = ['fridayHrs','extraOtHrs','extraAllowance'];
+  const LABELS = ['Extra Friday Hrs','Extra O.T. Hrs','Extra Allowance (AED)'];
+
+  // Build working copy from current DB data
+  const draft = {};
+  emps.forEach(e=>{
+    const row = effectiveHazardousRow(e.id, month);
+    draft[e.id] = {
+      fridayHrs: Number(row.fridayHrs)||0,
+      extraOtHrs: Number(row.extraOtHrs)||0,
+      extraAllowance: Number(row.extraAllowance)||0
+    };
+  });
+
+  // ── Overlay HTML ──────────────────────────────────────────
+  const ov = document.createElement('div');
+  ov.id = 'bulkEntryOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,20,50,0.82);z-index:9000;display:flex;flex-direction:column;';
+
+  const header = `
+    <div style="display:flex;align-items:center;gap:12px;padding:12px 20px;background:#0f2044;color:#fff;flex-shrink:0;">
+      <div>
+        <b style="font-size:16px;">⚡ Bulk Entry — Hazardous Allowance</b>
+        <span style="font-size:13px;opacity:.7;margin-left:12px;">${monthLabel(month)}</span>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+        <span style="font-size:12px;opacity:.6;">Tip: Tab moves down · Ctrl+D fills down · Paste from Excel works</span>
+        <button id="beApplyBtn" style="padding:8px 20px;background:#22c55e;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">✓ Apply & Save</button>
+        <button id="beCloseBtn" style="padding:8px 14px;background:rgba(255,255,255,0.15);color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;">✕ Close</button>
+      </div>
+    </div>`;
+
+  const tableRows = emps.map((e,i)=>`
+    <tr data-empid="${e.id}">
+      <td style="padding:4px 10px;font-size:13px;color:#94a3b8;text-align:center;user-select:none;">${i+1}</td>
+      <td style="padding:4px 10px;font-size:13px;font-weight:600;color:#60a5fa;white-space:nowrap;">${e.code}</td>
+      <td style="padding:4px 10px;font-size:13px;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;" title="${e.name}">${e.name}</td>
+      ${COLS.map((f,ci)=>`<td style="padding:2px 4px;" data-emp="${e.id}" data-col="${ci}">
+        <input type="number" min="0" step="${f==='extraAllowance'?'0.01':'1'}"
+          data-emp="${e.id}" data-col="${ci}" data-field="${f}"
+          value="${draft[e.id][f]||''}"
+          placeholder="0"
+          style="width:110px;padding:6px 8px;font-size:14px;text-align:center;border:1.5px solid #334155;border-radius:5px;background:#1e293b;color:#f1f5f9;outline:none;box-sizing:border-box;">
+      </td>`).join('')}
+      <td style="padding:4px 10px;font-size:12px;color:#64748b;" id="be_status_${e.id}"></td>
+    </tr>`).join('');
+
+  const body = `
+    <div style="flex:1;overflow:auto;padding:16px 20px;">
+      <table style="border-collapse:collapse;width:100%;min-width:700px;">
+        <thead>
+          <tr style="background:#1e293b;position:sticky;top:0;z-index:2;">
+            <th style="padding:10px;font-size:12px;color:#94a3b8;font-weight:500;text-align:center;width:40px;">#</th>
+            <th style="padding:10px;font-size:12px;color:#94a3b8;font-weight:500;text-align:left;width:80px;">Code</th>
+            <th style="padding:10px;font-size:12px;color:#94a3b8;font-weight:500;text-align:left;min-width:160px;">Name</th>
+            ${LABELS.map(l=>`<th style="padding:10px;font-size:12px;color:#60a5fa;font-weight:600;text-align:center;min-width:130px;">${l}</th>`).join('')}
+            <th style="padding:10px;width:60px;"></th>
+          </tr>
+        </thead>
+        <tbody style="background:#0f172a;">${tableRows}</tbody>
+      </table>
+    </div>
+    <div style="padding:10px 20px;background:#0f2044;color:#94a3b8;font-size:12px;flex-shrink:0;">
+      <b style="color:#60a5fa;">${emps.length} employees</b> · 
+      <b style="color:#22c55e;">Tab / Enter</b> = move down · 
+      <b style="color:#22c55e;">Ctrl+D</b> = fill value down to all selected rows ·
+      <b style="color:#22c55e;">Ctrl+V / Paste</b> = paste columns from Excel (3 columns: Fri Hrs, OT Hrs, Extra AED)
+    </div>`;
+
+  ov.innerHTML = header + body;
+  document.body.appendChild(ov);
+
+  // ── Helpers ───────────────────────────────────────────────
+  function allInputs(){ return Array.from(ov.querySelectorAll('input[data-emp]')); }
+  function inputAt(empId, ci){ return ov.querySelector(`input[data-emp="${empId}"][data-col="${ci}"]`); }
+
+  function highlightRow(empId, on){
+    const tr = ov.querySelector(`tr[data-empid="${empId}"]`);
+    if(tr) tr.style.background = on ? 'rgba(96,165,250,0.08)' : '';
+  }
+
+  function setStatus(empId, msg, color){
+    const el = document.getElementById('be_status_'+empId);
+    if(el){ el.textContent = msg; el.style.color = color||'#64748b'; }
+  }
+
+  // Track selection for Ctrl+D fill-down
+  let selCol = -1, selStart = -1, selEnd = -1, mouseDown = false;
+
+  function getEmpIndex(empId){ return emps.findIndex(e=>e.id===empId); }
+
+  function clearSelection(){
+    ov.querySelectorAll('input[data-emp]').forEach(inp=>{
+      inp.style.border = '1.5px solid #334155';
+      inp.style.background = '#1e293b';
+    });
+    selCol=-1; selStart=-1; selEnd=-1;
+  }
+
+  function applySelection(){
+    clearSelectionVisual();
+    if(selCol<0 || selStart<0 || selEnd<0) return;
+    const lo=Math.min(selStart,selEnd), hi=Math.max(selStart,selEnd);
+    for(let i=lo;i<=hi;i++){
+      const inp = inputAt(emps[i].id, selCol);
+      if(inp){ inp.style.border='1.5px solid #60a5fa'; inp.style.background='rgba(96,165,250,0.15)'; }
+    }
+  }
+  function clearSelectionVisual(){
+    ov.querySelectorAll('input[data-emp]').forEach(inp=>{
+      inp.style.border='1.5px solid #334155'; inp.style.background='#1e293b';
+    });
+  }
+
+  // ── Tab/Enter navigation (moves DOWN within same column) ──
+  ov.addEventListener('keydown', e=>{
+    const inp = e.target;
+    if(!inp.dataset || !inp.dataset.emp) return;
+    const empId = inp.dataset.emp;
+    const ci = parseInt(inp.dataset.col);
+    const fi = getEmpIndex(empId);
+
+    // Tab or Enter → move down same column
+    if(e.key==='Tab' || e.key==='Enter'){
+      e.preventDefault();
+      const nextEmp = emps[fi+1];
+      if(nextEmp){
+        const next = inputAt(nextEmp.id, ci);
+        if(next){ next.focus(); next.select(); }
+      } else {
+        // End of column → jump to top of next column
+        const nextCi = ci+1;
+        if(nextCi < COLS.length){
+          const next = inputAt(emps[0].id, nextCi);
+          if(next){ next.focus(); next.select(); }
+        }
+      }
+    }
+
+    // Ctrl+D → fill value down to all selected rows in same column
+    if((e.ctrlKey||e.metaKey) && e.key==='d'){
+      e.preventDefault();
+      const val = parseFloat(inp.value)||0;
+      if(selCol===ci && selStart>=0 && selEnd>=0){
+        const lo=Math.min(selStart,selEnd), hi=Math.max(selStart,selEnd);
+        for(let i=lo;i<=hi;i++){
+          const field = COLS[ci];
+          draft[emps[i].id][field] = val;
+          const target = inputAt(emps[i].id, ci);
+          if(target){ target.value = val||''; setStatus(emps[i].id,'•','#facc15'); }
+        }
+      } else {
+        // No selection — fill from current row to end
+        for(let i=fi;i<emps.length;i++){
+          const field = COLS[ci];
+          draft[emps[i].id][field] = val;
+          const target = inputAt(emps[i].id, ci);
+          if(target){ target.value = val||''; setStatus(emps[i].id,'•','#facc15'); }
+        }
+      }
+    }
+
+    // Ctrl+V is handled by paste event below
+    if(e.key==='Escape'){ ov.remove(); }
+  });
+
+  // ── Paste from Excel ──────────────────────────────────────
+  ov.addEventListener('paste', e=>{
+    const inp = e.target;
+    if(!inp.dataset || !inp.dataset.emp) return;
+    e.preventDefault();
+    const text = (e.clipboardData||window.clipboardData).getData('text');
+    const rows = text.trim().split(/\r?\n/);
+    const startEmpIdx = getEmpIndex(inp.dataset.emp);
+    const startCol = parseInt(inp.dataset.col);
+
+    rows.forEach((row, ri)=>{
+      const empIdx = startEmpIdx + ri;
+      if(empIdx >= emps.length) return;
+      const empId = emps[empIdx].id;
+      const cells = row.split('\t');
+      cells.forEach((val, ci)=>{
+        const colIdx = startCol + ci;
+        if(colIdx >= COLS.length) return;
+        const num = parseFloat(val.replace(/,/g,''))||0;
+        const field = COLS[colIdx];
+        draft[empId][field] = num;
+        const target = inputAt(empId, colIdx);
+        if(target){ target.value = num||''; setStatus(empId,'•','#facc15'); }
+      });
+      highlightRow(empId, true);
+      setTimeout(()=>highlightRow(empId, false), 1200);
+    });
+  });
+
+  // ── Live update draft on manual input ─────────────────────
+  ov.addEventListener('change', e=>{
+    const inp = e.target;
+    if(!inp.dataset || !inp.dataset.emp) return;
+    const val = parseFloat(inp.value)||0;
+    const field = COLS[parseInt(inp.dataset.col)];
+    draft[inp.dataset.emp][field] = val;
+    setStatus(inp.dataset.emp,'•','#facc15');
+  });
+
+  // ── Mouse drag selection within a column ─────────────────
+  ov.addEventListener('mousedown', e=>{
+    const inp = e.target;
+    if(!inp.dataset || !inp.dataset.emp) return;
+    mouseDown = true;
+    selCol = parseInt(inp.dataset.col);
+    selStart = getEmpIndex(inp.dataset.emp);
+    selEnd = selStart;
+    applySelection();
+  });
+  ov.addEventListener('mouseover', e=>{
+    if(!mouseDown) return;
+    const inp = e.target;
+    if(!inp.dataset || !inp.dataset.emp) return;
+    if(parseInt(inp.dataset.col) !== selCol) return;
+    selEnd = getEmpIndex(inp.dataset.emp);
+    applySelection();
+  });
+  document.addEventListener('mouseup', ()=>{ mouseDown=false; }, {once:false});
+
+  // ── Apply & Save ──────────────────────────────────────────
+  document.getElementById('beApplyBtn').onclick = ()=>{
+    let count = 0;
+    emps.forEach(e=>{
+      const d = draft[e.id];
+      ['fridayHrs','extraOtHrs','extraAllowance'].forEach(f=>{
+        setHazardousRow(e.id, month, f, d[f]||0);
+      });
+      setStatus(e.id, '✓ Saved', '#22c55e');
+      count++;
+    });
+    saveNow();
+    toast(`Bulk entry saved — ${count} employees updated`);
+    setTimeout(()=>{ ov.remove(); renderWithScroll(()=>{}); }, 600);
+  };
+
+  // ── Close ─────────────────────────────────────────────────
+  document.getElementById('beCloseBtn').onclick = ()=> ov.remove();
+  ov.addEventListener('click', e=>{ if(e.target===ov) ov.remove(); });
+
+  // Focus first cell
+  setTimeout(()=>{
+    const first = inputAt(emps[0]?.id, 0);
+    if(first){ first.focus(); first.select(); }
+  }, 50);
 }
 
 /* ── KEYBOARD SHORTCUT ────────────────────────────────────── */
