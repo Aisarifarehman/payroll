@@ -5376,7 +5376,8 @@ function openBulkEntry(month){
           <input type="number" min="0" step="${f==='extraAllowance'?'0.01':'1'}"
             data-ri="${ri}" data-ci="${ci}" data-emp="${e.id}" data-field="${f}"
             value="${vals[ci]}"
-            style="width:100%;height:28px;padding:1px 8px;font-size:13px;text-align:right;border:none;outline:none;background:transparent;color:#1a2340;box-sizing:border-box;cursor:cell;">
+            style="width:100%;height:28px;padding:1px 8px;font-size:13px;text-align:right;border:none;outline:none;background:transparent;color:#1a2340;box-sizing:border-box;cursor:cell;"
+            onclick="this.select()">
         </td>`).join('')}
       </tr>`;
     }).join('');
@@ -5393,7 +5394,7 @@ function openBulkEntry(month){
     ri=Math.max(0,Math.min(emps.length-1,ri));
     ci=Math.max(0,Math.min(COLS.length-1,ci));
     const inp=cellInp(ri,ci);
-    if(inp){inp.focus();inp.select();}
+    if(inp){ inp.focus(); inp.select(); }  // select all so Delete clears whole value
   }
 
   // ── Mouse: click & drag to select range in a column ──────
@@ -5480,9 +5481,28 @@ function openBulkEntry(month){
     const count=new Set([...allInputs].map(i=>i.dataset.emp)).size;
     toast(`Bulk entry saved — ${count} employees updated`);
     ov.remove();
+    // Re-render the hazardous page so changes are visible immediately
+    const main = document.getElementById('main');
+    if(main && typeof pageHazardous === 'function') pageHazardous(main);
   };
 
   document.getElementById('beCloseBtn').onclick=()=>ov.remove();
+
+  // ── Delete / Backspace on focused cell clears whole value ─
+  ov.addEventListener('keydown', e=>{
+    if(e.key==='Delete' || e.key==='Backspace'){
+      const inp=e.target;
+      if(!inp.dataset||inp.dataset.ri===undefined) return;
+      // If entire text is already selected (i.e. we just focused), clear it
+      if(inp.selectionStart===0 && inp.selectionEnd===inp.value.length && inp.value.length>0){
+        e.preventDefault();
+        inp.value='';
+        inp.dataset.changed='1';
+        markChanged(parseInt(inp.dataset.ri), parseInt(inp.dataset.ci));
+      }
+    }
+  }, true); // capture phase so it fires before the keydown handler above
+
   setTimeout(()=>focusCell(0,0),80);
 }
 
