@@ -836,11 +836,7 @@ function renderWithScroll(fn){
   // 4. Restore window scroll
   requestAnimationFrame(()=>{
     window.scrollTo(wx, wy);
-    // 5. Restore table scrollboxes
-    boxes.forEach(b=>{
-      const fresh = document.querySelector(`[data-scrollid="${b.el.dataset.scrollid}"]`) || b.el;
-      // Match by position in querySelectorAll after re-render
-    });
+    // 5. Restore table scrollboxes by position order
     document.querySelectorAll('.tablewrap.scrollbox, .scrollbox').forEach((el, i)=>{
       if(boxes[i]){ el.scrollLeft = boxes[i].sx; el.scrollTop = boxes[i].sy; }
     });
@@ -3233,30 +3229,30 @@ function pageHazardous(main){
           : (row.otherHrsIsAuto ? `title="Auto = Normal OT (${e.name}) ÷ 2 for ${monthLabel(month)}. Type a value to override."` : `title="Manually set — overrides the auto Normal OT ÷ 2 value."`);
         return `<tr data-emp="${e.id}">
           <td class="center">${i+1}</td><td><b><a class="code-link" href="javascript:void(0)" data-goto-ts="${e.id}" title="Open ${e.name}'s Daily Timesheet for ${monthLabel(month)}">${e.code}</a></b></td><td>${e.name}</td>
-          <td class="center" ${otherTitle}>${numInp('otherHrs', row.otherHrs)}${(rowIsLaundry && row.otherHrsIsAuto)?' <span class="smallnote">auto</span>':''}</td><td class="right" id="oa_${e.id}">${dash(amt.otherAmt)}</td>
-          <td class="center">${numInp('fridayHrs', row.fridayHrs)}</td><td class="right" id="fa_${e.id}">${dash(amt.fridayAmt)}</td>
-          <td class="center">${numInp('anyHrs', row.anyHrs)}</td><td class="right" id="aa_${e.id}">${dash(amt.anyAmt)}</td>
-          <td class="center">${numInp('extraOtHrs', row.extraOtHrs)}</td><td class="right" id="ea_${e.id}">${dash(amt.extraOtAmt)}</td>
-          <td class="center"><input type="number" step="0.01" min="0" class="hzi" data-emp="${e.id}" data-f="extraAllowance" value="${inpVal(row.extraAllowance)}" placeholder="0" style="width:80px;text-align:center;" title="Extra Allowance (AED) — added directly to Hazardous Allowance Total"></td>
-          <td class="right"><b id="tot_${e.id}">${dash(amt.hazardousTotal)}</b></td>
+          <td class="center" ${otherTitle} style="background:#dbeafe;border-left:3px solid #3b82f6;">${numInp('otherHrs', row.otherHrs)}${(rowIsLaundry && row.otherHrsIsAuto)?' <span class="smallnote">auto</span>':''}</td><td class="right" style="background:#dbeafe;" id="oa_${e.id}">${dash(amt.otherAmt)}</td>
+          <td class="center" style="background:#fef9c3;border-left:3px solid #eab308;">${numInp('fridayHrs', row.fridayHrs)}</td><td class="right" style="background:#fef9c3;" id="fa_${e.id}">${dash(amt.fridayAmt)}</td>
+          <td class="center" style="background:#dcfce7;border-left:3px solid #22c55e;">${numInp('anyHrs', row.anyHrs)}</td><td class="right" style="background:#dcfce7;" id="aa_${e.id}">${dash(amt.anyAmt)}</td>
+          <td class="center" style="background:#ffe4e6;border-left:3px solid #f43f5e;">${numInp('extraOtHrs', row.extraOtHrs)}</td><td class="right" style="background:#ffe4e6;" id="ea_${e.id}">${dash(amt.extraOtAmt)}</td>
+          <td class="center" style="background:#f3e8ff;border-left:3px solid #a855f7;"><input type="number" step="0.01" min="0" class="hzi" data-emp="${e.id}" data-f="extraAllowance" value="${inpVal(row.extraAllowance)}" placeholder="0" style="width:80px;text-align:center;" title="Extra Allowance (AED) — added directly to Hazardous Allowance Total"></td>
+          <td class="right" style="background:#fff7ed;border-left:3px solid #f97316;"><b id="tot_${e.id}">${dash(amt.hazardousTotal)}</b></td>
           <td><input type="text" class="hzi" data-emp="${e.id}" data-f="remarks" value="${row.remarks||''}" style="width:110px;"></td>
         </tr>`;
       }).join('');
       footHTML = `<tr class="tfoot-total"><td colspan="3">GRAND TOTAL</td>
-        <td></td><td class="right" id="foot_oa">${fmt(sumOther)}</td>
-        <td></td><td class="right" id="foot_fa">${fmt(sumFriday)}</td>
-        <td></td><td class="right" id="foot_aa">${fmt(sumAny)}</td>
-        <td></td><td class="right" id="foot_ea">${fmt(sumExtraOt)}</td>
-        <td class="right" id="foot_xal">${fmt(sumExtraAllow)}</td>
-        <td class="right" id="grandTot">${DB.settings.currency} ${fmt(grand)}</td><td></td></tr>`;
+        <td style="background:#dbeafe;border-left:3px solid #3b82f6;"></td><td class="right" style="background:#dbeafe;" id="foot_oa">${fmt(sumOther)}</td>
+        <td style="background:#fef9c3;border-left:3px solid #eab308;"></td><td class="right" style="background:#fef9c3;" id="foot_fa">${fmt(sumFriday)}</td>
+        <td style="background:#dcfce7;border-left:3px solid #22c55e;"></td><td class="right" style="background:#dcfce7;" id="foot_aa">${fmt(sumAny)}</td>
+        <td style="background:#ffe4e6;border-left:3px solid #f43f5e;"></td><td class="right" style="background:#ffe4e6;" id="foot_ea">${fmt(sumExtraOt)}</td>
+        <td class="right" style="background:#f3e8ff;border-left:3px solid #a855f7;" id="foot_xal">${fmt(sumExtraAllow)}</td>
+        <td class="right" style="background:#fff7ed;border-left:3px solid #f97316;" id="grandTot">${DB.settings.currency} ${fmt(grand)}</td><td></td></tr>`;
       colgroupHead = `<tr>
         <th>Sr.</th><th>Code</th><th>Name</th>
-        <th>Other Allowance<br>Hrs</th><th class="right">Total<br>Amount</th>
-        <th>Extra Friday<br>Hrs.</th><th class="right">Total Amount<br>of Extra Friday</th>
-        <th>Extra ANY<br>Hrs</th><th class="right">Total Amount<br>of Extra ANY</th>
-        <th>Extra O.T.<br>Done in hrs.</th><th class="right">Amount<br>(→ Special Allowance)</th>
-        <th class="center">Extra<br>Allowance (AED)</th>
-        <th class="right">HAZARDOUS<br>ALLOWANCE TOTAL</th><th>Remarks</th>
+        <th style="background:#dbeafe;border-left:3px solid #3b82f6;">Other Allowance<br>Hrs</th><th class="right" style="background:#dbeafe;">Total<br>Amount</th>
+        <th style="background:#fef9c3;border-left:3px solid #eab308;">Extra Friday<br>Hrs.</th><th class="right" style="background:#fef9c3;">Total Amount<br>of Extra Friday</th>
+        <th style="background:#dcfce7;border-left:3px solid #22c55e;">Extra ANY<br>Hrs</th><th class="right" style="background:#dcfce7;">Total Amount<br>of Extra ANY</th>
+        <th style="background:#ffe4e6;border-left:3px solid #f43f5e;">Extra O.T.<br>Done in hrs.</th><th class="right" style="background:#ffe4e6;">Amount<br>(→ Special Allowance)</th>
+        <th class="center" style="background:#f3e8ff;border-left:3px solid #a855f7;">Extra<br>Allowance (AED)</th>
+        <th class="right" style="background:#fff7ed;border-left:3px solid #f97316;">HAZARDOUS<br>ALLOWANCE TOTAL</th><th>Remarks</th>
       </tr>`;
     }
 
@@ -5430,15 +5426,15 @@ function openBulkEntry(month){
     else if(e.key==='Tab'||e.key==='ArrowRight'){ e.preventDefault(); if(ci<COLS.length-1)focusCell(ri,ci+1); else focusCell(ri+1,0); }
     else if(e.key==='ArrowLeft'){ e.preventDefault(); if(ci>0)focusCell(ri,ci-1); }
     else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='d'){
-      // Fill down: current value → entire selection or to end if no selection
+      // Fill down: current value → entire selection or from current row to end
       e.preventDefault();
       const val=parseFloat(inp.value)||0;
+      const empList=activeEmps(); // get fresh list in scope
       const r1 = selBox&&selBox.ci===ci ? selBox.r1 : ri;
-      const r2 = selBox&&selBox.ci===ci ? selBox.r2 : emps.length-1;
+      const r2 = selBox&&selBox.ci===ci ? selBox.r2 : empList.length-1;
       for(let r=r1;r<=r2;r++){
         const t=cellInp(r,ci);
-        if(t){ t.value=val; t.dataset.changed='1'; }
-        markChanged(r,ci);
+        if(t){ t.value=val; t.dataset.changed='1'; markChanged(r,ci); }
       }
     }
     else if(e.key==='Escape') ov.remove();
@@ -5488,20 +5484,17 @@ function openBulkEntry(month){
 
   document.getElementById('beCloseBtn').onclick=()=>ov.remove();
 
-  // ── Delete / Backspace on focused cell clears whole value ─
+  // ── Delete / Backspace on focused cell — always clears whole value ─
   ov.addEventListener('keydown', e=>{
-    if(e.key==='Delete' || e.key==='Backspace'){
+    if(e.key==='Delete'){
       const inp=e.target;
       if(!inp.dataset||inp.dataset.ri===undefined) return;
-      // If entire text is already selected (i.e. we just focused), clear it
-      if(inp.selectionStart===0 && inp.selectionEnd===inp.value.length && inp.value.length>0){
-        e.preventDefault();
-        inp.value='';
-        inp.dataset.changed='1';
-        markChanged(parseInt(inp.dataset.ri), parseInt(inp.dataset.ci));
-      }
+      e.preventDefault();
+      inp.value='';
+      inp.dataset.changed='1';
+      markChanged(parseInt(inp.dataset.ri), parseInt(inp.dataset.ci));
     }
-  }, true); // capture phase so it fires before the keydown handler above
+  }, true); // capture phase — fires before navigation handler
 
   setTimeout(()=>focusCell(0,0),80);
 }
