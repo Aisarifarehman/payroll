@@ -3227,7 +3227,7 @@ function pageHazardous(main){
         const otherTitle = !rowIsLaundry
           ? `title="Other Allowance Hrs auto-fill (Normal OT ÷ 2) only applies to Laundry division employees. Type a value here manually if needed for ${e.name}."`
           : (row.otherHrsIsAuto ? `title="Auto = Normal OT (${e.name}) ÷ 2 for ${monthLabel(month)}. Type a value to override."` : `title="Manually set — overrides the auto Normal OT ÷ 2 value."`);
-        return `<tr data-emp="${e.id}">
+        return `<tr data-emp="${e.id}" style="border-bottom:2px solid #b0bcd4;">
           <td class="center">${i+1}</td><td><b><a class="code-link" href="javascript:void(0)" data-goto-ts="${e.id}" title="Open ${e.name}'s Daily Timesheet for ${monthLabel(month)}">${e.code}</a></b></td><td>${e.name}</td>
           <td class="center" ${otherTitle} style="background:#dbeafe;border-left:3px solid #3b82f6;">${numInp('otherHrs', row.otherHrs)}${(rowIsLaundry && row.otherHrsIsAuto)?' <span class="smallnote">auto</span>':''}</td><td class="right" style="background:#dbeafe;" id="oa_${e.id}">${dash(amt.otherAmt)}</td>
           <td class="center" style="background:#fef9c3;border-left:3px solid #eab308;">${numInp('fridayHrs', row.fridayHrs)}</td><td class="right" style="background:#fef9c3;" id="fa_${e.id}">${dash(amt.fridayAmt)}</td>
