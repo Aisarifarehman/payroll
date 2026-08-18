@@ -3100,7 +3100,7 @@ function getHazardousRow(empId, month){
 function setHazardousRow(empId, month, field, val){
   DB.hazardousSheet = DB.hazardousSheet || {};
   DB.hazardousSheet[month] = DB.hazardousSheet[month] || {};
-  const rec = DB.hazardousSheet[month][empId] || {otherHrs:0, otherHrsOverridden:false, fridayHrs:0, anyHrs:0, extraOtHrs:0, remarks:''};
+  const rec = DB.hazardousSheet[month][empId] || {otherHrs:0, otherHrsOverridden:false, fridayHrs:0, anyHrs:0, extraOtHrs:0, extraAllowance:0, remarks:''};
   rec[field] = val;
   if(field==='otherHrs') rec.otherHrsOverridden = true;
   DB.hazardousSheet[month][empId] = rec;
@@ -3115,7 +3115,7 @@ function effectiveHazardousRow(empId, month){
   return {
     otherHrs, otherHrsIsAuto: !stored.otherHrsOverridden, autoOtherHrs: autoOther,
     fridayHrs: Number(stored.fridayHrs)||0, anyHrs: Number(stored.anyHrs)||0, extraOtHrs: Number(stored.extraOtHrs)||0,
-    remarks: stored.remarks||''
+    extraAllowance: Number(stored.extraAllowance)||0, remarks: stored.remarks||''
   };
 }
 function computeHazardousRowAmounts(emp, row){
@@ -3128,10 +3128,12 @@ function computeHazardousRowAmounts(emp, row){
   const fridayAmt = (Number(row.fridayHrs)||0)*rate150;
   const anyAmt = (Number(row.anyHrs)||0)*rate125;
   const extraOtAmt = (Number(row.extraOtHrs)||0)*rate125;
+  // Extra Allowance is a direct AED amount typed by user — added straight into Hazardous Allowance Total
+  const extraAllowAmt = Number(row.extraAllowance)||0;
   // Extra O.T. amount is routed to Special Allowance, NOT included in the Hazardous Allowance total (see computeSalaryWithEntries)
-  const hazardousTotal = otherAmt+fridayAmt+anyAmt;
-  const total = hazardousTotal+extraOtAmt; // kept for reference/CSV — combined figure, not used to set Hazardous directly
-  return {otherAmt, fridayAmt, anyAmt, extraOtAmt, hazardousTotal, total};
+  const hazardousTotal = otherAmt+fridayAmt+anyAmt+extraAllowAmt;
+  const total = hazardousTotal+extraOtAmt; // kept for reference/CSV — combined figure
+  return {otherAmt, fridayAmt, anyAmt, extraOtAmt, extraAllowAmt, hazardousTotal, total};
 }
 
 function pageHazardous(main){
@@ -3165,9 +3167,9 @@ function pageHazardous(main){
         monthRows.push({mk, row, amt});
       }
       const sums = monthRows.reduce((s,x)=>{
-        s.otherAmt+=x.amt.otherAmt; s.fridayAmt+=x.amt.fridayAmt; s.anyAmt+=x.amt.anyAmt; s.extraOtAmt+=x.amt.extraOtAmt; s.hazardousTotal+=x.amt.hazardousTotal;
+        s.otherAmt+=x.amt.otherAmt; s.fridayAmt+=x.amt.fridayAmt; s.anyAmt+=x.amt.anyAmt; s.extraOtAmt+=x.amt.extraOtAmt; s.extraAllowAmt+=x.amt.extraAllowAmt; s.hazardousTotal+=x.amt.hazardousTotal;
         return s;
-      }, {otherAmt:0,fridayAmt:0,anyAmt:0,extraOtAmt:0,hazardousTotal:0});
+      }, {otherAmt:0,fridayAmt:0,anyAmt:0,extraOtAmt:0,extraAllowAmt:0,hazardousTotal:0});
       const yearlyIsLaundry = isLaundryEmp(selEmp);
       bodyHTML = monthRows.length ? monthRows.map(x=>`
         <tr>
@@ -3176,24 +3178,26 @@ function pageHazardous(main){
           <td class="right">${dashN(x.row.fridayHrs)}</td><td class="right">${dash(x.amt.fridayAmt)}</td>
           <td class="right">${dashN(x.row.anyHrs)}</td><td class="right">${dash(x.amt.anyAmt)}</td>
           <td class="right">${dashN(x.row.extraOtHrs)}</td><td class="right">${dash(x.amt.extraOtAmt)}</td>
+          <td class="right">${dash(x.amt.extraAllowAmt)}</td>
           <td class="right"><b>${dash(x.amt.hazardousTotal)}</b></td>
-        </tr>`).join('') : `<tr><td colspan="10" class="empty">${selEmp?'No data for this year.':'Select an employee above.'}</td></tr>`;
-      footHTML = `<tr class="tfoot-total"><td>ANNUAL TOTAL</td><td></td><td class="right">${fmt(sums.otherAmt)}</td><td></td><td class="right">${fmt(sums.fridayAmt)}</td><td></td><td class="right">${fmt(sums.anyAmt)}</td><td></td><td class="right">${fmt(sums.extraOtAmt)}</td><td class="right">${DB.settings.currency} ${fmt(sums.hazardousTotal)}</td></tr>`;
+        </tr>`).join('') : `<tr><td colspan="11" class="empty">${selEmp?'No data for this year.':'Select an employee above.'}</td></tr>`;
+      footHTML = `<tr class="tfoot-total"><td>ANNUAL TOTAL</td><td></td><td class="right">${fmt(sums.otherAmt)}</td><td></td><td class="right">${fmt(sums.fridayAmt)}</td><td></td><td class="right">${fmt(sums.anyAmt)}</td><td></td><td class="right">${fmt(sums.extraOtAmt)}</td><td class="right">${fmt(sums.extraAllowAmt)}</td><td class="right">${DB.settings.currency} ${fmt(sums.hazardousTotal)}</td></tr>`;
       colgroupHead = `<tr>
         <th>Month</th>
         <th>Other Allowance<br>Hrs</th><th class="right">Total<br>Amount</th>
         <th>Extra Friday<br>Hrs.</th><th class="right">Total Amount<br>of Extra Friday</th>
         <th>Extra ANY<br>Hrs</th><th class="right">Total Amount<br>of Extra ANY</th>
         <th>Extra O.T.<br>Done in hrs.</th><th class="right">Amount<br>(→ Special Allowance)</th>
+        <th class="right">Extra<br>Allowance (AED)</th>
         <th class="right">HAZARDOUS<br>ALLOWANCE TOTAL</th>
       </tr>`;
     } else {
-      subtitle = `Extra hours worked, converted to an amount per employee — the total (Other Allowance + Extra Friday + Extra ANY) replaces the employee's Hazardous Allowance on the Timesheet for ${monthLabel(month)}. Extra O.T. amount goes to Special Allowance instead. Other Allowance Hrs auto-fills (Normal OT ÷ 2) for Laundry division only — it stays blank for every other division unless typed in manually.`;
-      let grand = 0, sumOther=0, sumFriday=0, sumAny=0, sumExtraOt=0;
+      subtitle = `Extra hours worked, converted to an amount per employee — the total (Other Allowance + Extra Friday + Extra ANY + Extra Allowance) replaces the employee's Hazardous Allowance on the Timesheet for ${monthLabel(month)}. Extra O.T. amount goes to Special Allowance instead. Extra Allowance (AED) is a direct amount that adds to Hazardous Allowance Total. Other Allowance Hrs auto-fills (Normal OT ÷ 2) for Laundry division only — it stays blank for every other division unless typed in manually.`;
+      let grand = 0, sumOther=0, sumFriday=0, sumAny=0, sumExtraOt=0, sumExtraAllow=0;
       bodyHTML = emps.map((e,i)=>{
         const row = effectiveHazardousRow(e.id, month);
         const amt = computeHazardousRowAmounts(e, row);
-        grand += amt.hazardousTotal; sumOther+=amt.otherAmt; sumFriday+=amt.fridayAmt; sumAny+=amt.anyAmt; sumExtraOt+=amt.extraOtAmt;
+        grand += amt.hazardousTotal; sumOther+=amt.otherAmt; sumFriday+=amt.fridayAmt; sumAny+=amt.anyAmt; sumExtraOt+=amt.extraOtAmt; sumExtraAllow+=amt.extraAllowAmt;
         const numInp = (field, val)=>`<input type="number" step="0.5" min="0" class="hzi" data-emp="${e.id}" data-f="${field}" value="${inpVal(val)}" placeholder="0" style="width:60px;text-align:center;">`;
         const rowIsLaundry = isLaundryEmp(e);
         const otherTitle = !rowIsLaundry
@@ -3205,6 +3209,7 @@ function pageHazardous(main){
           <td class="center">${numInp('fridayHrs', row.fridayHrs)}</td><td class="right" id="fa_${e.id}">${dash(amt.fridayAmt)}</td>
           <td class="center">${numInp('anyHrs', row.anyHrs)}</td><td class="right" id="aa_${e.id}">${dash(amt.anyAmt)}</td>
           <td class="center">${numInp('extraOtHrs', row.extraOtHrs)}</td><td class="right" id="ea_${e.id}">${dash(amt.extraOtAmt)}</td>
+          <td class="center"><input type="number" step="0.01" min="0" class="hzi" data-emp="${e.id}" data-f="extraAllowance" value="${inpVal(row.extraAllowance)}" placeholder="0" style="width:80px;text-align:center;" title="Extra Allowance (AED) — added directly to Hazardous Allowance Total"></td>
           <td class="right"><b id="tot_${e.id}">${dash(amt.hazardousTotal)}</b></td>
           <td><input type="text" class="hzi" data-emp="${e.id}" data-f="remarks" value="${row.remarks||''}" style="width:110px;"></td>
         </tr>`;
@@ -3214,6 +3219,7 @@ function pageHazardous(main){
         <td></td><td class="right" id="foot_fa">${fmt(sumFriday)}</td>
         <td></td><td class="right" id="foot_aa">${fmt(sumAny)}</td>
         <td></td><td class="right" id="foot_ea">${fmt(sumExtraOt)}</td>
+        <td class="right" id="foot_xal">${fmt(sumExtraAllow)}</td>
         <td class="right" id="grandTot">${DB.settings.currency} ${fmt(grand)}</td><td></td></tr>`;
       colgroupHead = `<tr>
         <th>Sr.</th><th>Code</th><th>Name</th>
@@ -3221,6 +3227,7 @@ function pageHazardous(main){
         <th>Extra Friday<br>Hrs.</th><th class="right">Total Amount<br>of Extra Friday</th>
         <th>Extra ANY<br>Hrs</th><th class="right">Total Amount<br>of Extra ANY</th>
         <th>Extra O.T.<br>Done in hrs.</th><th class="right">Amount<br>(→ Special Allowance)</th>
+        <th class="center">Extra<br>Allowance (AED)</th>
         <th class="right">HAZARDOUS<br>ALLOWANCE TOTAL</th><th>Remarks</th>
       </tr>`;
     }
@@ -3246,7 +3253,7 @@ function pageHazardous(main){
           <div class="fitem"><label>Working Area</label><select id="hArea"><option value="">All</option>${areasOf(fDiv||null).map(a=>`<option value="${a.id}" ${fArea===a.id?'selected':''}>${a.name}</option>`).join('')}</select></div>
           <div class="fitem"><label>Region</label><select id="hBlock"><option value="">All</option>${blocksOf(fArea||null).map(b=>`<option value="${b.id}" ${fBlock===b.id?'selected':''}>${b.name}</option>`).join('')}</select></div>`}
         </div>
-        <p class="smallnote">Other Allowance Hrs auto-fills as that employee's Normal OT hours (from the Timesheet) ÷ 2 — <b>Laundry division only.</b> For every other division the field stays blank by default; type a value to set/override it manually for any employee. Other Allowance, Extra ANY and Extra O.T. hours are paid at Basic÷30÷8×1.25/hr. Extra Friday hours are paid at Basic÷30÷8×1.50/hr. <b>HAZARDOUS ALLOWANCE TOTAL = Other Allowance + Extra Friday + Extra ANY only.</b> The Extra O.T. amount is added to Special Allowance on the Timesheet instead, not to Hazardous. Remarks are a note only and don't affect the calculation.</p>
+        <p class="smallnote">Other Allowance Hrs auto-fills as that employee's Normal OT hours (from the Timesheet) ÷ 2 — <b>Laundry division only.</b> For every other division the field stays blank by default; type a value to set/override it manually for any employee. Other Allowance, Extra ANY and Extra O.T. hours are paid at Basic÷30÷8×1.25/hr. Extra Friday hours are paid at Basic÷30÷8×1.50/hr. <b>HAZARDOUS ALLOWANCE TOTAL = Other Allowance + Extra Friday + Extra ANY + Extra Allowance (AED).</b> Extra Allowance (AED) is a direct AED amount you type — it is added straight to Hazardous Allowance Total and flows to the employee's Timesheet. The Extra O.T. amount is added to Special Allowance on the Timesheet instead, not to Hazardous. Remarks are a note only and don't affect the calculation.</p>
         <div class="tablewrap scrollbox"><table>
           <thead>${colgroupHead}</thead>
           <tbody>${bodyHTML || `<tr><td colspan="13" class="empty">No active employees in this scope.</td></tr>`}</tbody>
@@ -5296,26 +5303,16 @@ function bvcFindEmp(code){
   return DB.employees.find(e=>(e.code||'').toUpperCase().replace(/\s+/g,'')=== c)||null;
 }
 
-/* LOCAL date formatting — never toISOString() which shifts to UTC and
-   makes every date one day earlier in Dubai (UTC+4). */
-function bvcFmtDate(d){
-  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-}
-/* Remembers the last day the user spoke about, so "16 july absent" then
-   "make present" (no date) applies to 16 july, not today. */
-let bvcLastDate = null;
-
 function bvcResolveDate(low, month){
-  if(!low||low==='today') return bvcFmtDate(new Date());
-  if(low==='yesterday'){ const d=new Date(); d.setDate(d.getDate()-1); return bvcFmtDate(d); }
+  if(!low||low==='today') return new Date().toISOString().slice(0,10);
+  if(low==='yesterday'){ const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
   const m = low.match(/\b(\d{1,2})(?:st|nd|rd|th)?\b/);
   if(m){
     const day=parseInt(m[1],10), [yr,mo]=month.split('-').map(Number);
-    /* Pay period 26 prev month -> 25 this month: day 26-31 = previous calendar month */
-    const d = day>=26 ? new Date(yr,mo-2,day) : new Date(yr,mo-1,day);
-    if(!isNaN(d)) return bvcFmtDate(d);
+    const d = new Date(day>=26 ? new Date(yr,mo-2,day) : new Date(yr,mo-1,day));
+    if(!isNaN(d)) return d.toISOString().slice(0,10);
   }
-  return bvcFmtDate(new Date());
+  return new Date().toISOString().slice(0,10);
 }
 
 function bvcGetEntries(empId, month){
@@ -5438,10 +5435,8 @@ function bvcParse(text){
 
   if(target){
     const month = bvcMonth();
-    /* Date: explicitly spoken > last-remembered day > today */
-    const dateM = low.match(/\b(today|yesterday|(?:on\s+)?(?:the\s+)?\d{1,2}(?:st|nd|rd|th)?)\b/);
-    const date  = dateM ? bvcResolveDate(dateM[0], month)
-                        : (bvcLastDate || bvcFmtDate(new Date()));
+    const datePh = (low.match(/\b(today|yesterday|(?:on\s+)?(?:the\s+)?\d{1,2}(?:st|nd|rd|th)?)\b/)||[])[0]||'today';
+    const date   = bvcResolveDate(datePh, month);
 
     /* FULL ABSENT / FULL PRESENT + attendance remarks */
     for(const entry of REMARK_MAP){
@@ -5477,48 +5472,7 @@ function bvcParse(text){
     return { type:'openEmp', employee:emp };
   }
 
-  /* UNIVERSAL BUTTON COMMAND — "open / add / remove / change / save /
-     process / modify / delete / apply / export / print ..." followed by
-     (optionally) the button's name. Clicks any visible button anywhere
-     in the app whose label matches what was spoken. */
-  const verbM = low.match(/\b(open|click|press|add|create|new|remove|delete|change|modify|update|save|process|apply|export|import|refresh|reset|generate|print|download|upload|search|clear)\b\s*(.*)$/);
-  if(verbM){
-    return { type:'clickBtn', verb:verbM[1], rest:(verbM[2]||'').trim() };
-  }
-
   return null; /* not understood → silently ignore */
-}
-
-/* Find the best visible clickable element whose label matches the phrase.
-   Ignores the voice panel's own buttons. Returns element or null. */
-function bvcClickByText(phrase){
-  const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
-  const target=norm(phrase);
-  if(!target || target.length<2) return null;
-  const els=[...document.querySelectorAll('button, a, [role="button"], input[type="button"], input[type="submit"], .btn')]
-    .filter(el=>{
-      if(el.id && el.id.startsWith('bvc')) return false;       /* skip voice UI */
-      if(el.disabled) return false;
-      const r=el.getBoundingClientRect();
-      return r.width>0 && r.height>0;                            /* visible only */
-    });
-  let best=null, bestScore=0;
-  for(const el of els){
-    const txt=norm(el.textContent || el.value || el.title || el.getAttribute('aria-label'));
-    if(!txt) continue;
-    let score=0;
-    if(txt===target) score=100;
-    else if(txt.includes(target)) score=80 - Math.min(30, txt.length-target.length);
-    else if(target.includes(txt) && txt.length>=3) score=55;
-    else {
-      const tw=target.split(' ');
-      const xw=new Set(txt.split(' '));
-      const hits=tw.filter(w=>xw.has(w)).length;
-      if(hits>0) score=Math.round(50*hits/tw.length);
-    }
-    if(score>bestScore){ bestScore=score; best=el; }
-  }
-  return bestScore>=45 ? best : null;
 }
 
 /* ── EXECUTOR ─────────────────────────────────────────────── */
@@ -5557,24 +5511,6 @@ function bvcExecute(act){
   }
 
   if(act.type==='openEmp'){ bvcOpenEmpTimesheet(act.employee); return; }
-
-  if(act.type==='clickBtn'){
-    /* Try: full phrase after verb → verb+rest together → just the verb */
-    const tries=[];
-    if(act.rest){ tries.push(act.rest, act.verb+' '+act.rest); }
-    tries.push(act.verb);
-    for(const t of tries){
-      const el=bvcClickByText(t);
-      if(el){
-        el.click();
-        const label=(el.textContent||el.value||'button').trim().replace(/\s+/g,' ').slice(0,40);
-        bvcShowToast('\u2705 '+label,'success');
-        bvcAddLog('Clicked: '+label);
-        return;
-      }
-    }
-    return; /* no matching button on screen → silently ignore */
-  }
 
   if(act.type==='viewEmp'){
     bvcClickEmpBtn(act.employee,'view');
@@ -5632,7 +5568,6 @@ function bvcExecute(act){
     }
     bvcTouch(entries,emp.id,month);
     save(); bvcPatchRow(emp.id,month,row);
-    bvcLastDate = act.date;
     const label=act.remark||'PRESENT';
     bvcShowToast('\u2705 '+emp.name+' \u2014 '+label+' on '+act.date,'success');
     bvcAddLog(emp.code+' \u2192 '+label+' on '+act.date);
@@ -5648,7 +5583,6 @@ function bvcExecute(act){
     row[act.field]=hrs;
     bvcTouch(entries,emp.id,month);
     save(); bvcPatchRow(emp.id,month,row);
-    bvcLastDate = act.date;
     const fl={normalOT:'Normal',fridayOT:'Sunday',phOT:'PH'}[act.field]||act.field;
     bvcShowToast('\u2705 '+emp.name+' \u2014 '+fl+' OT '+hrs+'h on '+act.date,'success');
     bvcAddLog(emp.code+' \u2192 '+fl+' OT '+hrs+'h on '+act.date);
