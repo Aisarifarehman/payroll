@@ -5300,8 +5300,8 @@ function openBulkEntry(month){
         <button id="beCloseBtn" style="padding:7px 12px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:5px;font-size:13px;cursor:pointer;">✕ Close</button>
       </div>
     </div>
-    <div style="flex:1;overflow:auto;background:#f4f6fb;">
-      <table id="beTable" style="border-collapse:collapse;width:100%;min-width:700px;background:#fff;">
+    <div style="flex:1;overflow:auto;background:#fff;padding:0;">
+      <table id="beTable" style="border-collapse:collapse;background:#fff;table-layout:fixed;width:auto;min-width:760px;">
         <thead id="beThead"></thead>
         <tbody id="beTbody"></tbody>
       </table>
@@ -5314,31 +5314,37 @@ function openBulkEntry(month){
   function renderTable(){
     const emps = activeEmps();
     document.getElementById('beThead').innerHTML = `
-      <tr style="background:#0f2044;">
-        <th style="padding:8px 10px;font-size:12px;color:#8ea0c6;font-weight:500;text-align:center;width:36px;border:1px solid #1a3060;">#</th>
-        <th style="padding:8px 12px;font-size:12px;color:#8ea0c6;font-weight:500;text-align:left;width:80px;border:1px solid #1a3060;">Code</th>
-        <th style="padding:8px 12px;font-size:12px;color:#8ea0c6;font-weight:500;text-align:left;min-width:180px;border:1px solid #1a3060;">Name</th>
-        ${LABELS.map(l=>`<th style="padding:8px 14px;font-size:12px;color:#c9a227;font-weight:600;text-align:center;min-width:150px;border:1px solid #1a3060;">${l}</th>`).join('')}
+      <tr style="background:#0f2044;position:sticky;top:0;z-index:3;">
+        <th style="padding:7px 8px;font-size:11px;color:#8ea0c6;font-weight:500;text-align:center;width:34px;border:1px solid #1a3060;">#</th>
+        <th style="padding:7px 10px;font-size:11px;color:#8ea0c6;font-weight:500;text-align:left;width:72px;border:1px solid #1a3060;">Code</th>
+        <th style="padding:7px 10px;font-size:11px;color:#8ea0c6;font-weight:500;text-align:left;width:200px;border:1px solid #1a3060;">Name</th>
+        <th style="padding:7px 14px;font-size:11px;color:#c9a227;font-weight:600;text-align:center;width:140px;border:1px solid #1a3060;">Extra Friday Hrs</th>
+        <th style="padding:7px 14px;font-size:11px;color:#c9a227;font-weight:600;text-align:center;width:140px;border:1px solid #1a3060;">Extra O.T. Hrs</th>
+        <th style="padding:7px 14px;font-size:11px;color:#c9a227;font-weight:600;text-align:center;width:160px;border:1px solid #1a3060;">Extra Allowance (AED)</th>
       </tr>`;
 
     document.getElementById('beTbody').innerHTML = emps.map((e,ri)=>{
       const row = effectiveHazardousRow(e.id, month);
+      const friVal  = Number(row.fridayHrs)||0;
+      const otVal   = Number(row.extraOtHrs)||0;
+      const exaVal  = Number(row.extraAllowance)||0;
+      const vals    = [friVal, otVal, exaVal];
       return `<tr id="be_row_${e.id}" style="${ri%2===0?'background:#fff':'background:#f8faff'}">
-        <td style="padding:3px 8px;font-size:13px;color:#999;text-align:center;border:1px solid #e0e6f0;user-select:none;">${ri+1}</td>
-        <td style="padding:3px 10px;border:1px solid #e0e6f0;user-select:none;">
-          <span style="display:inline-block;padding:2px 8px;background:#e8f0fe;color:#1a4fa8;border-radius:4px;font-size:12px;font-weight:700;">${e.code}</span>
+        <td style="padding:2px 6px;font-size:12px;color:#aaa;text-align:center;border:1px solid #e8ecf4;user-select:none;white-space:nowrap;">${ri+1}</td>
+        <td style="padding:2px 8px;border:1px solid #e8ecf4;user-select:none;white-space:nowrap;text-align:center;">
+          <b><a style="color:#1a4fa8;text-decoration:none;font-size:13px;">${e.code}</a></b>
         </td>
-        <td style="padding:3px 10px;font-size:13px;font-weight:500;color:#1a2340;border:1px solid #e0e6f0;user-select:none;">${e.name}</td>
-        ${COLS.map((f,ci)=>`<td style="padding:1px 2px;border:1px solid #e0e6f0;">
+        <td style="padding:2px 10px;font-size:13px;color:#1a2340;border:1px solid #e8ecf4;user-select:none;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${e.name}">${e.name}</td>
+        ${COLS.map((f,ci)=>`<td style="padding:0;border:1px solid #e8ecf4;">
           <input type="number" min="0" step="${f==='extraAllowance'?'0.01':'1'}"
             data-ri="${ri}" data-ci="${ci}" data-emp="${e.id}" data-field="${f}"
-            value="${Number(row[f])||0}"
-            style="width:100%;height:32px;padding:2px 8px;font-size:14px;text-align:right;border:none;outline:none;background:transparent;color:#1a2340;box-sizing:border-box;">
+            value="${vals[ci]}"
+            style="width:100%;height:30px;padding:2px 10px;font-size:13px;text-align:right;border:none;outline:none;background:transparent;color:#1a2340;box-sizing:border-box;">
         </td>`).join('')}
       </tr>`;
     }).join('');
 
-    document.getElementById('beFooter').textContent = `${emps.length} employees shown${divFilter?' (filtered)':''} · Enter/↓ = move down · ↑↓←→ = navigate · Ctrl+D = fill value down · Ctrl+V = paste from Excel`;
+    document.getElementById('beFooter').textContent = `${emps.length} employees${divFilter?' (filtered)':''} · Enter/↓ = move down · ↑↓←→ = navigate · Ctrl+D = fill value down · Ctrl+V = paste from Excel`;
   }
 
   renderTable();
