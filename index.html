@@ -5268,7 +5268,7 @@ function openBulkEntry(month){
   function activeEmps(){
     return DB.employees
       .filter(e=>(e.status||'Active')==='Active' && (!divFilter || e.divisionId===divFilter))
-      .sort((a,b)=>a.name.localeCompare(b.name));
+      .sort((a,b)=>(a.code||'').localeCompare(b.code||'', undefined, {numeric:true}));
   }
 
   // ── draft: always read live from inputs ──────────────────
