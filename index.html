@@ -819,6 +819,34 @@ function toast(msg){
   window.__toastTimer = setTimeout(()=>t.classList.remove('show'), 2200);
 }
 
+/* ── Scroll-preserving render ──────────────────────────────────────────────────
+   Call renderWithScroll(renderInner) instead of renderInner() whenever a data-
+   entry input changes. Saves window scroll + every .scrollbox horizontal scroll,
+   re-renders, then restores them so the user stays exactly where they were.       */
+function renderWithScroll(fn){
+  // 1. Save window (page) scroll
+  const wx = window.scrollX, wy = window.scrollY;
+  // 2. Save all horizontal scrollboxes (table wrappers)
+  const boxes = [];
+  document.querySelectorAll('.tablewrap.scrollbox, .scrollbox').forEach(el=>{
+    boxes.push({el, sx: el.scrollLeft, sy: el.scrollTop});
+  });
+  // 3. Re-render
+  fn();
+  // 4. Restore window scroll
+  requestAnimationFrame(()=>{
+    window.scrollTo(wx, wy);
+    // 5. Restore table scrollboxes
+    boxes.forEach(b=>{
+      const fresh = document.querySelector(`[data-scrollid="${b.el.dataset.scrollid}"]`) || b.el;
+      // Match by position in querySelectorAll after re-render
+    });
+    document.querySelectorAll('.tablewrap.scrollbox, .scrollbox').forEach((el, i)=>{
+      if(boxes[i]){ el.scrollLeft = boxes[i].sx; el.scrollTop = boxes[i].sy; }
+    });
+  });
+}
+
 /* ============================= NAV ============================= */
 const NAV = [
   {group:'Overview', items:[
@@ -3286,7 +3314,7 @@ function pageHazardous(main){
         if(e.target.type==='number' && val<0) val = 0;
         setHazardousRow(empIdEdit, month, field, val);
         saveNow();
-        renderInner();
+        renderWithScroll(renderInner);
       });
     });
   }
@@ -3660,7 +3688,7 @@ function pageSalary(main){
           const val = parseFloat(e.target.value)||0;
           setDeduction(empIdEdit, month, val);
           saveNow();
-          renderInner();
+          renderWithScroll(renderInner);
         });
       });
       main.querySelectorAll('[data-detail]').forEach(b=>b.onclick=()=>openDetail(b.dataset.detail));
@@ -3685,7 +3713,7 @@ function pageSalary(main){
       const cur=employeeStatus(eid, month);
       if(cur==='none'){ toast('No timesheet entered yet for this employee — nothing to mark Ready'); return; }
       setEmployeeReady(eid, month, cur!=='ready'); // toggles ready <-> pending
-      saveNow(); renderInner();
+      saveNow(); renderWithScroll(renderInner);
     });
     main.querySelectorAll('[data-goto-ts]').forEach(a=>a.onclick=()=>goToTimesheet(a.dataset.gotoTs, month));
   }
@@ -3767,7 +3795,7 @@ function pageSalary(main){
       });
       DB.payroll[month] = DB.payroll[month] || {};
       DB.payroll[month][empId] = rec;
-      saveNow(); closeModal(); toast('Saved employee override'); renderInner();
+      saveNow(); closeModal(); toast('Saved employee override'); renderWithScroll(renderInner);
     };
   }
 }
