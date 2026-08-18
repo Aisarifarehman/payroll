@@ -5256,168 +5256,194 @@ window.addEventListener('pagehide', ()=>{ flushSessionEnd(); });
 ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════════════════════
-   BULK ENTRY — Excel-like grid for Hazardous sheet (fixed)
+   BULK ENTRY — True Excel-like grid for Hazardous sheet (v2)
    ══════════════════════════════════════════════════════════════ */
+
+// Excel file code order — employees shown in this exact sequence
+const BULK_CODE_ORDER = ['L003','L021','L068','L084','L097','L100','L105','L111','L126','C4590','L130','L135','L136','L137','L143','L146','L149','L 153','L153','L 153','L166','L168','L169','L183','L186','L187','L188','L189','L190','L191','L195','C17873','L19094','L19868','L20361','L20978','C20451','C20646','L21466','L21467','L21468','L21748','L21775','C21755','L21971','L21991','L22121','L22153','L22513','F280','L22695','L23098','L23157','L23210','L23891','L23894','L24190','l24190','I24190','C23697','L25446'];
+
 function openBulkEntry(month){
   if(document.getElementById('bulkEntryOverlay')) return;
 
   const COLS   = ['fridayHrs','extraOtHrs','extraAllowance'];
   const LABELS = ['Extra Friday Hrs','Extra O.T. Hrs','Extra Allowance (AED)'];
-  let divFilter = '';  // division filter
+  let divFilter = '';
+
+  function normalize(code){ return (code||'').trim().toUpperCase().replace(/\s+/g,''); }
 
   function activeEmps(){
-    return DB.employees
-      .filter(e=>(e.status||'Active')==='Active' && (!divFilter || e.divisionId===divFilter))
-      .sort((a,b)=>(a.code||'').localeCompare(b.code||'', undefined, {numeric:true}));
+    const all = DB.employees.filter(e=>(e.status||'Active')==='Active' && (!divFilter||e.divisionId===divFilter));
+    // Sort by Excel file order first, then any remaining by code
+    const ordered = [];
+    const used = new Set();
+    BULK_CODE_ORDER.forEach(c=>{
+      const nc = normalize(c);
+      const emp = all.find(e=>normalize(e.code)===nc && !used.has(e.id));
+      if(emp){ ordered.push(emp); used.add(emp.id); }
+    });
+    // Any remaining not in Excel order — append sorted by code
+    all.filter(e=>!used.has(e.id)).sort((a,b)=>(a.code||'').localeCompare(b.code||'',undefined,{numeric:true})).forEach(e=>ordered.push(e));
+    return ordered;
   }
 
-  // ── draft: always read live from inputs ──────────────────
-  function getDraftVal(empId, field){
-    const inp = document.querySelector(`#beTable input[data-emp="${empId}"][data-field="${field}"]`);
-    return inp ? (parseFloat(inp.value)||0) : (parseFloat(effectiveHazardousRow(empId, month)[field])||0);
-  }
-
-  // ── Build overlay once ────────────────────────────────────
   const ov = document.createElement('div');
   ov.id = 'bulkEntryOverlay';
   ov.style.cssText = 'position:fixed;inset:0;z-index:9000;display:flex;flex-direction:column;';
 
-  // Division options for filter
   const divOpts = DB.divisions.map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
 
   ov.innerHTML = `
-    <div style="background:#0f2044;color:#fff;padding:10px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap;">
-      <span style="font-size:15px;font-weight:700;">⚡ Bulk Entry — Hazardous Allowance &nbsp;<span style="font-weight:400;font-size:13px;opacity:.75;">${monthLabel(month)}</span></span>
-      <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
+    <div style="background:#0f2044;color:#fff;padding:9px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap;">
+      <span style="font-size:14px;font-weight:700;">⚡ Bulk Entry — Hazardous Allowance &nbsp;<span style="font-weight:400;font-size:12px;opacity:.75;">${monthLabel(month)}</span></span>
+      <div style="display:flex;align-items:center;gap:5px;">
         <label style="font-size:12px;opacity:.8;">Division:</label>
-        <select id="beDivFilter" style="padding:4px 8px;border-radius:4px;border:1px solid #c9a227;background:#1a3060;color:#fff;font-size:13px;">
+        <select id="beDivFilter" style="padding:3px 8px;border-radius:4px;border:1px solid #c9a227;background:#1a3060;color:#fff;font-size:12px;">
           <option value="">All Divisions</option>${divOpts}
         </select>
       </div>
-      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <span style="font-size:11px;opacity:.65;">Enter/↓ = down &nbsp;·&nbsp; ↑↓←→ = navigate &nbsp;·&nbsp; Ctrl+D = fill down &nbsp;·&nbsp; Ctrl+V = paste from Excel</span>
-        <button id="beApplyBtn" style="padding:7px 18px;background:#c9a227;color:#0f2044;border:none;border-radius:5px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">✓ Apply &amp; Save</button>
-        <button id="beCloseBtn" style="padding:7px 12px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:5px;font-size:13px;cursor:pointer;">✕ Close</button>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+        <span style="font-size:11px;opacity:.6;">Click cell → type → Enter/↓ moves down &nbsp;·&nbsp; Click &amp; drag to select rows &nbsp;·&nbsp; Ctrl+D fills selection down &nbsp;·&nbsp; Ctrl+V paste from Excel</span>
+        <button id="beApplyBtn" style="padding:6px 16px;background:#c9a227;color:#0f2044;border:none;border-radius:4px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">✓ Apply &amp; Save</button>
+        <button id="beCloseBtn" style="padding:6px 10px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:4px;font-size:13px;cursor:pointer;">✕</button>
       </div>
     </div>
-    <div style="flex:1;overflow:auto;background:#fff;padding:0;">
-      <table id="beTable" style="border-collapse:collapse;background:#fff;table-layout:fixed;width:auto;min-width:760px;">
-        <thead id="beThead"></thead>
+    <div style="flex:1;overflow:auto;background:#fff;">
+      <table id="beTable" style="border-collapse:collapse;table-layout:fixed;width:auto;">
+        <colgroup>
+          <col style="width:34px"><col style="width:74px"><col style="width:195px">
+          <col style="width:138px"><col style="width:138px"><col style="width:155px">
+        </colgroup>
+        <thead id="beThead" style="position:sticky;top:0;z-index:3;"></thead>
         <tbody id="beTbody"></tbody>
       </table>
     </div>
-    <div id="beFooter" style="background:#0f2044;color:#8ea0c6;padding:7px 16px;font-size:12px;flex-shrink:0;"></div>`;
+    <div id="beFooter" style="background:#0f2044;color:#8ea0c6;padding:5px 16px;font-size:11px;flex-shrink:0;"></div>`;
 
   document.body.appendChild(ov);
+
+  // ── Selection state ───────────────────────────────────────
+  // selBox: {ci, r1, r2} — the currently highlighted range in one column
+  let selBox = null;
+  let dragging = false, dragCI = -1, dragR1 = -1, dragR2 = -1;
+
+  function cellInp(ri, ci){
+    return document.querySelector(`#beTable input[data-ri="${ri}"][data-ci="${ci}"]`);
+  }
+
+  function paintSelection(){
+    document.querySelectorAll('#beTable input[data-ri]').forEach(inp=>{
+      const ri=parseInt(inp.dataset.ri), ci=parseInt(inp.dataset.ci);
+      const inSel = selBox && ci===selBox.ci && ri>=selBox.r1 && ri<=selBox.r2;
+      if(inSel){
+        inp.style.outline='2px solid #1a4fa8';
+        inp.style.background='rgba(26,79,168,0.08)';
+      } else if(inp.dataset.changed){
+        inp.style.outline='none';
+        inp.style.background='#e8f5e9';
+      } else {
+        inp.style.outline='none';
+        inp.style.background='transparent';
+      }
+    });
+  }
+
+  function markChanged(ri, ci){
+    const inp=cellInp(ri,ci);
+    if(inp){ inp.dataset.changed='1'; inp.style.background='#e8f5e9'; inp.style.color='#1e8e5a'; inp.style.fontWeight='600'; }
+  }
 
   // ── Render table ──────────────────────────────────────────
   function renderTable(){
     const emps = activeEmps();
     document.getElementById('beThead').innerHTML = `
-      <tr style="background:#0f2044;position:sticky;top:0;z-index:3;">
-        <th style="padding:7px 8px;font-size:11px;color:#8ea0c6;font-weight:500;text-align:center;width:34px;border:1px solid #1a3060;">#</th>
-        <th style="padding:7px 10px;font-size:11px;color:#8ea0c6;font-weight:500;text-align:left;width:72px;border:1px solid #1a3060;">Code</th>
-        <th style="padding:7px 10px;font-size:11px;color:#8ea0c6;font-weight:500;text-align:left;width:200px;border:1px solid #1a3060;">Name</th>
-        <th style="padding:7px 14px;font-size:11px;color:#c9a227;font-weight:600;text-align:center;width:140px;border:1px solid #1a3060;">Extra Friday Hrs</th>
-        <th style="padding:7px 14px;font-size:11px;color:#c9a227;font-weight:600;text-align:center;width:140px;border:1px solid #1a3060;">Extra O.T. Hrs</th>
-        <th style="padding:7px 14px;font-size:11px;color:#c9a227;font-weight:600;text-align:center;width:160px;border:1px solid #1a3060;">Extra Allowance (AED)</th>
+      <tr style="background:#0f2044;">
+        <th style="padding:7px 6px;font-size:11px;color:#8ea0c6;font-weight:500;text-align:center;border:1px solid #1a3060;">#</th>
+        <th style="padding:7px 8px;font-size:11px;color:#8ea0c6;font-weight:500;text-align:left;border:1px solid #1a3060;">Code</th>
+        <th style="padding:7px 10px;font-size:11px;color:#8ea0c6;font-weight:500;text-align:left;border:1px solid #1a3060;">Name</th>
+        <th style="padding:7px 10px;font-size:11px;color:#c9a227;font-weight:600;text-align:center;border:1px solid #1a3060;">Extra Friday Hrs</th>
+        <th style="padding:7px 10px;font-size:11px;color:#c9a227;font-weight:600;text-align:center;border:1px solid #1a3060;">Extra O.T. Hrs</th>
+        <th style="padding:7px 10px;font-size:11px;color:#c9a227;font-weight:600;text-align:center;border:1px solid #1a3060;">Extra Allowance (AED)</th>
       </tr>`;
 
     document.getElementById('beTbody').innerHTML = emps.map((e,ri)=>{
       const row = effectiveHazardousRow(e.id, month);
-      const friVal  = Number(row.fridayHrs)||0;
-      const otVal   = Number(row.extraOtHrs)||0;
-      const exaVal  = Number(row.extraAllowance)||0;
-      const vals    = [friVal, otVal, exaVal];
-      return `<tr id="be_row_${e.id}" style="${ri%2===0?'background:#fff':'background:#f8faff'}">
-        <td style="padding:2px 6px;font-size:12px;color:#aaa;text-align:center;border:1px solid #e8ecf4;user-select:none;white-space:nowrap;">${ri+1}</td>
-        <td style="padding:2px 8px;border:1px solid #e8ecf4;user-select:none;white-space:nowrap;text-align:center;">
-          <b><a style="color:#1a4fa8;text-decoration:none;font-size:13px;">${e.code}</a></b>
-        </td>
-        <td style="padding:2px 10px;font-size:13px;color:#1a2340;border:1px solid #e8ecf4;user-select:none;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${e.name}">${e.name}</td>
+      const vals = [Number(row.fridayHrs)||0, Number(row.extraOtHrs)||0, Number(row.extraAllowance)||0];
+      return `<tr style="${ri%2===0?'background:#fff':'background:#f7f9ff'}">
+        <td style="padding:1px 4px;font-size:12px;color:#bbb;text-align:center;border:1px solid #e8ecf4;user-select:none;">${ri+1}</td>
+        <td style="padding:1px 8px;border:1px solid #e8ecf4;user-select:none;"><b><a style="color:#1a4fa8;text-decoration:none;font-size:12px;">${e.code}</a></b></td>
+        <td style="padding:1px 8px;font-size:13px;color:#1a2340;border:1px solid #e8ecf4;user-select:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e.name}">${e.name}</td>
         ${COLS.map((f,ci)=>`<td style="padding:0;border:1px solid #e8ecf4;">
           <input type="number" min="0" step="${f==='extraAllowance'?'0.01':'1'}"
             data-ri="${ri}" data-ci="${ci}" data-emp="${e.id}" data-field="${f}"
             value="${vals[ci]}"
-            style="width:100%;height:30px;padding:2px 10px;font-size:13px;text-align:right;border:none;outline:none;background:transparent;color:#1a2340;box-sizing:border-box;">
+            style="width:100%;height:28px;padding:1px 8px;font-size:13px;text-align:right;border:none;outline:none;background:transparent;color:#1a2340;box-sizing:border-box;cursor:cell;">
         </td>`).join('')}
       </tr>`;
     }).join('');
 
-    document.getElementById('beFooter').textContent = `${emps.length} employees${divFilter?' (filtered)':''} · Enter/↓ = move down · ↑↓←→ = navigate · Ctrl+D = fill value down · Ctrl+V = paste from Excel`;
+    document.getElementById('beFooter').textContent =
+      `${emps.length} employees${divFilter?' (filtered)':''} · Click & drag cells in a column to select range · Ctrl+D = fill down · Ctrl+V = paste from Excel · Changed cells shown in green`;
+    paintSelection();
   }
 
   renderTable();
 
-  // ── Cell navigation ───────────────────────────────────────
   function focusCell(ri, ci){
-    const emps = activeEmps();
-    ri = Math.max(0, Math.min(emps.length-1, ri));
-    ci = Math.max(0, Math.min(COLS.length-1, ci));
-    const inp = document.querySelector(`#beTable input[data-ri="${ri}"][data-ci="${ci}"]`);
-    if(inp){ inp.focus(); inp.select(); }
+    const emps=activeEmps();
+    ri=Math.max(0,Math.min(emps.length-1,ri));
+    ci=Math.max(0,Math.min(COLS.length-1,ci));
+    const inp=cellInp(ri,ci);
+    if(inp){inp.focus();inp.select();}
   }
 
-  function styleActive(inp){
-    inp.style.background = '#e8f0fe';
-    inp.style.outline = '2px solid #1a4fa8';
-  }
-  function styleChanged(inp){
-    inp.style.background = '#e8f5e9';
-    inp.style.color = '#1e8e5a';
-    inp.style.fontWeight = '700';
-    inp.style.outline = 'none';
-  }
-  function styleNormal(inp){
-    inp.style.background = 'transparent';
-    inp.style.outline = 'none';
-  }
+  // ── Mouse: click & drag to select range in a column ──────
+  ov.addEventListener('mousedown', e=>{
+    const inp=e.target;
+    if(!inp.dataset||inp.dataset.ri===undefined) return;
+    dragging=true;
+    dragCI=parseInt(inp.dataset.ci);
+    dragR1=dragR2=parseInt(inp.dataset.ri);
+    selBox={ci:dragCI,r1:dragR1,r2:dragR2};
+    paintSelection();
+  });
+  ov.addEventListener('mousemove', e=>{
+    if(!dragging) return;
+    const inp=e.target;
+    if(!inp.dataset||inp.dataset.ri===undefined) return;
+    if(parseInt(inp.dataset.ci)!==dragCI) return;
+    dragR2=parseInt(inp.dataset.ri);
+    selBox={ci:dragCI,r1:Math.min(dragR1,dragR2),r2:Math.max(dragR1,dragR2)};
+    paintSelection();
+  });
+  document.addEventListener('mouseup',()=>{ dragging=false; });
 
-  // track last focused for Ctrl+D range
-  let lastRi=-1, lastCi=-1, selRangeStart=-1;
-
-  ov.addEventListener('focus', e=>{
-    if(!e.target.dataset||e.target.dataset.ri===undefined) return;
-    styleActive(e.target);
-    lastRi=parseInt(e.target.dataset.ri); lastCi=parseInt(e.target.dataset.ci);
-    selRangeStart=lastRi;
-  }, true);
-
-  ov.addEventListener('blur', e=>{
-    if(!e.target.dataset||e.target.dataset.ri===undefined) return;
-    if(e.target.dataset.changed) styleChanged(e.target);
-    else styleNormal(e.target);
-  }, true);
-
+  // ── Keyboard navigation ───────────────────────────────────
   ov.addEventListener('keydown', e=>{
     const inp=e.target;
     if(!inp.dataset||inp.dataset.ri===undefined) return;
     const ri=parseInt(inp.dataset.ri), ci=parseInt(inp.dataset.ci);
+    const emps=activeEmps();
 
-    if(e.key==='Enter'||e.key==='ArrowDown'){ e.preventDefault(); focusCell(ri+1,ci); }
-    else if(e.key==='ArrowUp'){ e.preventDefault(); focusCell(ri-1,ci); }
-    else if(e.key==='Tab'||e.key==='ArrowRight'){
-      e.preventDefault();
-      if(ci<COLS.length-1) focusCell(ri,ci+1);
-      else focusCell(ri+1,0);
-    }
-    else if(e.key==='ArrowLeft'){
-      e.preventDefault();
-      if(ci>0) focusCell(ri,ci-1);
-    }
+    if(e.key==='Enter'||e.key==='ArrowDown'){ e.preventDefault(); selBox={ci,r1:ri+1,r2:ri+1}; paintSelection(); focusCell(ri+1,ci); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); selBox={ci,r1:ri-1,r2:ri-1}; paintSelection(); focusCell(ri-1,ci); }
+    else if(e.key==='Tab'||e.key==='ArrowRight'){ e.preventDefault(); if(ci<COLS.length-1)focusCell(ri,ci+1); else focusCell(ri+1,0); }
+    else if(e.key==='ArrowLeft'){ e.preventDefault(); if(ci>0)focusCell(ri,ci-1); }
     else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='d'){
+      // Fill down: current value → entire selection or to end if no selection
       e.preventDefault();
       const val=parseFloat(inp.value)||0;
-      const emps=activeEmps();
-      for(let r=ri; r<emps.length; r++){
-        const t=document.querySelector(`#beTable input[data-ri="${r}"][data-ci="${ci}"]`);
-        if(t){ t.value=val; t.dataset.changed='1'; styleChanged(t); }
+      const r1 = selBox&&selBox.ci===ci ? selBox.r1 : ri;
+      const r2 = selBox&&selBox.ci===ci ? selBox.r2 : emps.length-1;
+      for(let r=r1;r<=r2;r++){
+        const t=cellInp(r,ci);
+        if(t){ t.value=val; t.dataset.changed='1'; }
+        markChanged(r,ci);
       }
     }
     else if(e.key==='Escape') ov.remove();
   });
 
-  // ── Paste from Excel ──────────────────────────────────────
+  // ── Paste from Excel (Ctrl+V) ─────────────────────────────
   ov.addEventListener('paste', e=>{
     const inp=e.target;
     if(!inp.dataset||inp.dataset.ri===undefined) return;
@@ -5426,40 +5452,40 @@ function openBulkEntry(month){
     const pasteRows=text.trim().split(/\r?\n/);
     const startRi=parseInt(inp.dataset.ri), startCi=parseInt(inp.dataset.ci);
     pasteRows.forEach((rowTxt,rOff)=>{
-      const ri=startRi+rOff;
       rowTxt.split('\t').forEach((val,cOff)=>{
-        const ci=startCi+cOff; if(ci>=COLS.length) return;
-        const t=document.querySelector(`#beTable input[data-ri="${ri}"][data-ci="${ci}"]`);
-        if(t){ t.value=parseFloat(val.replace(/,/g,''))||0; t.dataset.changed='1'; styleChanged(t); }
+        const ri=startRi+rOff, ci=startCi+cOff;
+        if(ci>=COLS.length) return;
+        const t=cellInp(ri,ci);
+        if(t){ t.value=parseFloat(val.replace(/,/g,''))||0; t.dataset.changed='1'; markChanged(ri,ci); }
       });
     });
   });
 
-  // ── Division filter ───────────────────────────────────────
-  document.getElementById('beDivFilter').onchange=e=>{
-    divFilter=e.target.value; renderTable();
-    setTimeout(()=>focusCell(0,0),60);
-  };
+  // ── Input change ──────────────────────────────────────────
+  ov.addEventListener('input', e=>{
+    const inp=e.target;
+    if(!inp.dataset||inp.dataset.ri===undefined) return;
+    inp.dataset.changed='1';
+    markChanged(parseInt(inp.dataset.ri), parseInt(inp.dataset.ci));
+  });
 
-  // ── Apply & Save — reads LIVE from inputs ─────────────────
+  // ── Division filter ───────────────────────────────────────
+  document.getElementById('beDivFilter').onchange=e=>{ divFilter=e.target.value; selBox=null; renderTable(); setTimeout(()=>focusCell(0,0),60); };
+
+  // ── Apply & Save — reads every input live ─────────────────
   document.getElementById('beApplyBtn').onclick=()=>{
-    // Read every input currently in the table and save to DB
-    const allInputs = document.querySelectorAll('#beTable input[data-emp][data-field]');
-    allInputs.forEach(inp=>{
-      const empId=inp.dataset.emp, field=inp.dataset.field;
-      const val=parseFloat(inp.value)||0;
-      setHazardousRow(empId, month, field, val);
-    });
+    const allInputs=document.querySelectorAll('#beTable input[data-emp][data-field]');
+    allInputs.forEach(inp=>setHazardousRow(inp.dataset.emp, month, inp.dataset.field, parseFloat(inp.value)||0));
     saveNow();
-    const count = new Set([...allInputs].map(i=>i.dataset.emp)).size;
+    const count=new Set([...allInputs].map(i=>i.dataset.emp)).size;
     toast(`Bulk entry saved — ${count} employees updated`);
     ov.remove();
   };
 
   document.getElementById('beCloseBtn').onclick=()=>ov.remove();
-
-  setTimeout(()=>focusCell(0,0), 80);
+  setTimeout(()=>focusCell(0,0),80);
 }
+
 
 (function BerkeleyVoiceEngine(){
 'use strict';
