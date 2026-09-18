@@ -332,29 +332,29 @@ tr:hover td{background:#f8f9fd;}
    wage summary to a single A4 page instead of spilling onto a second sheet or overflowing the
    page width. */
 #tsPrintArea{display:none;background:#fff;color:#000;font-family:'Segoe UI',Arial,sans-serif;}
-#tsPrintArea .ts-page{page-break-after:always;padding:7mm;}
+#tsPrintArea .ts-page{page-break-after:always;padding:9mm;}
 #tsPrintArea .ts-page:last-child{page-break-after:auto;}
-#tsPrintArea .ts-p-head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #16264c;padding-bottom:4px;margin-bottom:6px;}
-#tsPrintArea .ts-p-co{font-size:14px;font-weight:700;color:#16264c;}
-#tsPrintArea .ts-p-title{font-size:11.5px;font-weight:700;color:#20335f;letter-spacing:.3px;}
-#tsPrintArea .ts-p-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:2px 14px;font-size:10px;margin-bottom:7px;background:#f6f8fc;padding:5px 8px;border-radius:6px;border:1px solid #ccc;}
-#tsPrintArea .ts-p-days{margin-bottom:6px;}
-#tsPrintArea .ts-p-days table{font-size:9.2px;}
+#tsPrintArea .ts-p-head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #16264c;padding-bottom:6px;margin-bottom:8px;}
+#tsPrintArea .ts-p-co{font-size:15px;font-weight:700;color:#16264c;}
+#tsPrintArea .ts-p-title{font-size:12.5px;font-weight:700;color:#20335f;letter-spacing:.3px;}
+#tsPrintArea .ts-p-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:3px 18px;font-size:10.5px;margin-bottom:10px;background:#f6f8fc;padding:7px 10px;border-radius:6px;border:1px solid #ccc;}
+#tsPrintArea .ts-p-days{margin-bottom:10px;}
+#tsPrintArea .ts-p-days table{font-size:9.8px;}
 #tsPrintArea table{width:100%;border-collapse:collapse;font-size:9.2px;table-layout:fixed;}
 #tsPrintArea thead{display:table-header-group;}
 #tsPrintArea tbody tr{page-break-inside:avoid;}
-#tsPrintArea th,#tsPrintArea td{border:1px solid #666;padding:2px 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-#tsPrintArea th{background:#eef1f8!important;color:#16264c;font-size:8.5px;text-align:center;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+#tsPrintArea th,#tsPrintArea td{border:1px solid #666;padding:3px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#tsPrintArea th{background:#eef1f8!important;color:#16264c;font-size:8.8px;text-align:center;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
 #tsPrintArea .right{text-align:right;}
 #tsPrintArea .ts-p-wo{background:#fde8e8!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
 /* Calculation/summary table is split into two side-by-side halves (not one long list) so it
    takes half the vertical space, and spans the FULL page width like the day grid above it. */
-#tsPrintArea .ts-p-summary{display:flex;gap:6mm;margin-top:2px;}
+#tsPrintArea .ts-p-summary{display:flex;gap:8mm;margin-top:3px;}
 #tsPrintArea .ts-p-summary>div{flex:1;min-width:0;}
-#tsPrintArea .ts-p-summary table{font-size:9.5px;}
+#tsPrintArea .ts-p-summary table{font-size:10px;}
 #tsPrintArea .ts-p-summary td:first-child{white-space:normal;}
 #tsPrintArea tfoot td{font-weight:700;background:#f4f6fb!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-#tsPrintArea .ts-p-note{font-size:9px;font-style:italic;color:#333;margin-top:6px;page-break-before:avoid;}
+#tsPrintArea .ts-p-note{font-size:9.5px;font-style:italic;color:#333;margin-top:10px;}
 /* Wage Card print area — hidden on screen, rendered only while printing via Print Options */
 #wcPrintArea{display:none;background:#fff;color:#000;font-family:'Segoe UI',Arial,sans-serif;}
 #wcPrintArea .wc-page{page-break-after:always;padding:8mm;}
@@ -643,6 +643,8 @@ async function pushRemoteDB(dbObj){
       // next comparison is always byte-for-byte what Postgres actually has, avoiding any
       // ISO-string formatting/precision mismatch between client and server.
       lastKnownRemoteUpdatedAt = rows[0].updated_at;
+      // Auto-backup: silently keep a second copy in row 'backup' as a safety net.
+      pushAutoBackup(dbObj);
     } else if(lastKnownRemoteUpdatedAt) {
       // 0 rows matched: someone else saved in between. Our write was correctly rejected instead
       // of silently clobbering their newer data. Pull their version and tell the user to redo
@@ -651,6 +653,18 @@ async function pushRemoteDB(dbObj){
     }
   }catch(err){ console.error('Remote save failed', err); }
 }
+/* Auto-backup: writes a second Supabase row 'backup' every time real data is saved.
+   This is a silent safety net — if 'main' ever gets wiped again, 'backup' holds the last
+   good copy and can be restored with one SQL: UPDATE app_state SET data=(SELECT data FROM app_state WHERE id='backup'), updated_at=now() WHERE id='main'; */
+async function pushAutoBackup(dbObj){
+  if(!sb) return;
+  if(!(dbObj.employees||[]).length && !(dbObj.divisions||[]).length) return; // never backup empty data
+  try{
+    await sb.from('app_state')
+      .upsert({id:'backup', data:dbObj, updated_at:new Date().toISOString(), updated_by:'auto-backup'});
+  }catch(e){ console.warn('Auto-backup failed (non-critical)', e); }
+}
+
 async function pullRemoteAfterConflict(){
   try{
     const remote = await fetchRemoteDB(); // also refreshes lastKnownRemoteUpdatedAt
@@ -4885,7 +4899,7 @@ function pageSettings(main){
     </div>
     <div class="card">
       <h3>Backup &amp; Restore</h3>
-      <p class="smallnote">Your data is stored only in this browser's local storage. Clearing browser data will erase everything. Export a backup regularly and keep the file safe.</p>
+      <p class="smallnote">Your data is stored in Supabase (cloud) and cached in this browser. A silent auto-backup copy is kept in Supabase row <b>'backup'</b> every time you save — recoverable by SQL if the main row is ever wiped. Also export a JSON file below regularly as an extra safety copy.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <button class="btn btn-outline" id="exportBackupBtn">⬇ Export Full Backup (JSON)</button>
         <label class="btn btn-outline" style="cursor:pointer;">⬆ Import Backup (JSON)<input type="file" id="importFile" accept="application/json" style="display:none;"></label>
@@ -5064,8 +5078,11 @@ window.addEventListener('pagehide', ()=>{ flushSessionEnd(); });
       DB = mergeData(remote);
       try{ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }catch(e){}
     }else{
-      // Nothing in the cloud yet - seed it with whatever this browser currently has.
-      await pushRemoteDB(DB);
+      // Nothing in the cloud yet — only seed Supabase if local data has real content.
+      // NEVER push empty defaultData() to Supabase as it would wipe any existing data.
+      if((DB.employees||[]).length > 0 || (DB.divisions||[]).length > 0){
+        await pushRemoteDB(DB);
+      }
     }
   }catch(err){
     console.error('Cloud load failed, continuing with local data', err);
@@ -5077,7 +5094,8 @@ window.addEventListener('pagehide', ()=>{ flushSessionEnd(); });
   // reconcile stale sessions from previous visits now, so the history stays clean even if nobody
   // logs back in for a while.
   reconcileStaleSessions();
-  save();
+  // SAFETY: only persist to localStorage if DB has real data — never overwrite cloud with empty defaults.
+  if((DB.employees||[]).length > 0 || (DB.divisions||[]).length > 0) save();
   renderNav();
   renderPage();
   subscribeRealtime();
